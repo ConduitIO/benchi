@@ -1,0 +1,26 @@
+services:
+  kafka:
+    image: apache/kafka:3.9.0
+    platform: linux/amd64 # does not support arm64
+    networks:
+      - benchi
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9092"]
+      # health checks happen every 2s, failures in the first 30s are not counted
+      # toward the maximum number of retries, after 5 failed health checks the
+      # service is marked as unhealthy
+      interval: 2s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    ports:
+      - "9092:9092"
+      - "7071:7071"  # JMX Exporter port
+    volumes:
+      - ./kafka:/opt/kafka/jmx  # Mount JMX files
+    environment:
+      KAFKA_OPTS: "-javaagent:/opt/kafka/jmx/jmx_prometheus_javaagent-1.1.0.jar=7071:/opt/kafka/jmx/kafka-jmx-config.yml"
+
+networks:
+  benchi:
+    external: true

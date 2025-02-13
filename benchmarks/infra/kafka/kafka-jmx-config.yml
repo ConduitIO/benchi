@@ -1,0 +1,8 @@
+startDelaySeconds: 0
+lowercaseOutputName: false
+lowercaseOutputLabelNames: false
+rules:
+  - pattern: 'kafka.server<type=(.+), name=(.+)><>Value'
+    name: kafka__
+    type: GAUGE
+    help: "Kafka metric  "

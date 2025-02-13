@@ -1,0 +1,4 @@
+services:
+  conduit:
+    volumes:
+      - ./pipeline.yml:/app/pipelines/pipeline.yml'

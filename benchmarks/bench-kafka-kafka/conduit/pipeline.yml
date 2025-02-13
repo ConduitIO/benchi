@@ -1,0 +1,18 @@
+version: "2.2"
+pipelines:
+  - id: kafka-to-kafka
+    status: running
+    connectors:
+      - id: bench-in
+        type: source
+        plugin: builtin:kafka
+        settings:
+          servers: "kafka:9092"
+          topic: "bench-in"
+
+      - id: bench-out
+        type: destination
+        plugin: builtin:kafka
+        settings:
+          servers: "kafka:9092"
+          topic: 'bench-out'

@@ -1,0 +1,11 @@
+services:
+  conduit:
+    image: ghcr.io/conduitio/conduit:v0.13.1
+    networks:
+      - benchi
+    ports:
+      - '8081:8080'
+
+networks:
+  benchi:
+    external: true

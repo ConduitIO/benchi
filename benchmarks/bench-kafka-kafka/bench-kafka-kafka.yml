@@ -1,0 +1,60 @@
+infrastructure:
+  kafka:
+    docker-compose: ../infra/docker-compose-kafka.yml
+
+tools:
+  kafka-connect:
+    docker-compose: ../tools/docker-compose-kafka-connect.yml
+  conduit:
+    docker-compose: ../tools/docker-compose-conduit.yml
+
+metrics:
+  - collector: kafka
+    interval: 1s
+    settings:
+      url: kafka:8081/health
+      foo: bar
+
+  - collector: conduit
+    interval: 1s
+    settings:
+      url: conduit:8080/metrics
+      bar: gah
+
+  - collector: docker-stats
+    interval: 1s
+    settings:
+      url: conduit:8080/metrics
+      bar: gah
+
+  - collector: kafka-connect
+    interval: 1s
+    settings:
+      qux: baz
+
+tests:
+  - name: kafka-to-kafka
+    duration: 2m
+
+    tools:
+      conduit:
+        docker-compose: ./conduit/docker-compose-conduit.override.yml
+
+    steps:
+      pre-infrastructure:
+      post-infrastructure:
+        - name: "Create topics"
+          container: "conduit"
+          run: |
+            kafka-topics --create --topic bench-in --partitions 1 --replication-factor 1 --bootstrap-server localhost:9092
+            kafka-topics --create --topic bench-out --partitions 1 --replication-factor 1 --bootstrap-server localhost:9092
+        - name: "Produce messages"
+          container: "kafka"
+          run: "kafka-producer-perf-test --topic bench-in --num-records 1000000 --record-size 1000 --throughput -1 --producer-props bootstrap.servers=localhost:9092"
+      pre-tool:
+      post-tool:
+      pre-test:
+      during:
+      post-test:
+      pre-cleanup:
+      post-cleanup:
