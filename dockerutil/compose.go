@@ -17,7 +17,7 @@ package dockerutil
 import (
 	"context"
 	"fmt"
-	"os"
+	"io"
 	"os/exec"
 )
 
@@ -34,6 +34,10 @@ type ComposeOptions struct {
 	Progress         *string  //     --progress string            Set type of progress output (auto, tty, plain, json, quiet) (default "auto")
 	ProjectDirectory *string  //     --project-directory string   Specify an alternate working directory
 	ProjectName      *string  // -p, --project-name string        Project name
+
+	Stdin  io.Reader
+	Stdout io.Writer
+	Stderr io.Writer
 }
 
 func (opt ComposeOptions) flags() []string {
@@ -79,8 +83,10 @@ func composeCmd(ctx context.Context, composeOpt ComposeOptions) *exec.Cmd {
 	args = append(args, composeOpt.flags()...)
 
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+
+	cmd.Stdin = composeOpt.Stdin
+	cmd.Stdout = composeOpt.Stdout
+	cmd.Stderr = composeOpt.Stderr
 
 	cmd.Dir = DirFromContext(ctx)
 

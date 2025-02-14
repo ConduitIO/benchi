@@ -17,6 +17,7 @@ package dockerutil
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
@@ -38,6 +39,10 @@ func CreateNetworkIfNotExist(ctx context.Context, dockerClient client.APIClient,
 		if err != nil {
 			return network.Inspect{}, err
 		}
+
+		// Wait for network to be created, for some reason containers can't
+		// connect to it right away.
+		time.Sleep(time.Second)
 
 		if netResp.Warning != "" {
 			slog.Warn("Network created with warnings", "network-id", netResp.ID, "warning", netResp.Warning)

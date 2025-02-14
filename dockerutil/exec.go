@@ -20,7 +20,7 @@ import (
 )
 
 func Exec(cmd *exec.Cmd) error {
-	slog.Info("Executing command", "command", cmd.String())
+	slog.Debug("Executing command", "command", cmd.String())
 
 	return cmd.Run()
 }

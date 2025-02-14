@@ -34,6 +34,7 @@ var (
 	networkName = flag.String("network", "benchi", "name of the docker network to create")
 	configPath  = flag.String("config", "", "path to the benchmark config file")
 	outPath     = flag.String("out", "./results", "path to the output folder")
+	verbose     = flag.Bool("verbose", false, "enable verbose logging")
 )
 
 func main() {
@@ -46,6 +47,12 @@ func main() {
 func mainE() error {
 	ctx := context.Background()
 	flag.Parse()
+
+	lvl := slog.LevelInfo
+	if *verbose {
+		lvl = slog.LevelDebug
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: lvl})))
 
 	if configPath == nil || strings.TrimSpace(*configPath) == "" {
 		return fmt.Errorf("config path is required")
@@ -70,9 +77,10 @@ func mainE() error {
 	}
 
 	err = benchi.Run(ctx, cfg, benchi.RunOptions{
-		OutPath:     *outPath,
-		FilterTests: nil, // TODO: implement filter
-		Dir:         filepath.Dir(*configPath),
+		OutPath:      *outPath,
+		FilterTests:  nil, // TODO: implement filter
+		Dir:          filepath.Dir(*configPath),
+		DockerClient: dockerClient,
 	})
 
 	return nil

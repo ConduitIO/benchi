@@ -21,3 +21,6 @@
 
 ### OS ###
 .DS_Store
+
+### Benchi ###
+/results
