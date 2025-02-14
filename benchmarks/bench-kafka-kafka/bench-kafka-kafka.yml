@@ -3,8 +3,8 @@ infrastructure:
     docker-compose: ../infra/docker-compose-kafka.yml
 
 tools:
-  kafka-connect:
-    docker-compose: ../tools/docker-compose-kafka-connect.yml
+#  kafka-connect:
+#    docker-compose: ../tools/docker-compose-kafka-connect.yml
   conduit:
     docker-compose: ../tools/docker-compose-conduit.yml
 
@@ -34,7 +34,7 @@ metrics:
 
 tests:
   - name: kafka-to-kafka
-    duration: 2m
+    duration: 10s
 
     tools:
       conduit:

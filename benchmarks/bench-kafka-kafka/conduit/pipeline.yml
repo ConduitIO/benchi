@@ -8,7 +8,7 @@ pipelines:
         plugin: builtin:kafka
         settings:
           servers: "kafka:9092"
-          topic: "bench-in"
+          topics: "bench-in"
 
       - id: bench-out
         type: destination

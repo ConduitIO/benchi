@@ -1,4 +1,5 @@
 services:
   conduit:
     volumes:
-      - ./pipeline.yml:/app/pipelines/pipeline.yml'
+      # mount path is relative to the location of the original docker-compose file
+      - ../bench-kafka-kafka/conduit/pipeline.yml:/app/pipelines/pipeline.yml

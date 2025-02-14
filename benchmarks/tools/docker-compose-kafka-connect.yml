@@ -1,5 +1,5 @@
 services:
-  connect:
+  kafka-connect:
     image: confluentinc/cp-kafka-connect:7.8.1
     networks:
       - benchi
