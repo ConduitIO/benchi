@@ -7,12 +7,12 @@ pipelines:
         type: source
         plugin: builtin:kafka
         settings:
-          servers: "kafka:9092"
+          servers: "benchi-kafka:9092"
           topics: "bench-in"
 
       - id: bench-out
         type: destination
         plugin: builtin:kafka
         settings:
-          servers: "kafka:9092"
+          servers: "benchi-kafka:9092"
           topic: 'bench-out'

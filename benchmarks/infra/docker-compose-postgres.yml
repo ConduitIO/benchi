@@ -1,6 +1,7 @@
 services:
   postgres:
     image: docker.io/bitnami/postgresql-repmgr:16
+    container_name: benchi-postgres
     networks:
       - benchi
     ports:

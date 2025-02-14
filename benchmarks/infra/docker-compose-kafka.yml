@@ -1,11 +1,12 @@
 services:
   kafka:
     image: apache/kafka:3.9.0
+    container_name: benchi-kafka
     platform: linux/amd64 # does not support arm64
     networks:
       - benchi
     healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "9092"]
+      test: ["CMD", "nc", "-z", "benchi-kafka", "9092"]
       # health checks happen every 2s, failures in the first 30s are not counted
       # toward the maximum number of retries, after 5 failed health checks the
       # service is marked as unhealthy
@@ -17,8 +18,16 @@ services:
       - "9092:9092"
       - "7071:7071"  # JMX Exporter port
     volumes:
-      - ./kafka:/opt/kafka/jmx  # Mount JMX files
+      - ./kafka/jmx:/opt/kafka/jmx  # Mount JMX files
     environment:
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_NODE_ID: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@benchi-kafka:9093'
+      KAFKA_LISTENERS: 'PLAINTEXT://:9092,CONTROLLER://:9093'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://benchi-kafka:9092,CONTROLLER://benchi-kafka:9093'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,SSL:SSL,SASL_PLAINTEXT:SASL_PLAINTEXT,SASL_SSL:SASL_SSL'
       KAFKA_OPTS: "-javaagent:/opt/kafka/jmx/jmx_prometheus_javaagent-1.1.0.jar=7071:/opt/kafka/jmx/kafka-jmx-config.yml"
 
 networks:

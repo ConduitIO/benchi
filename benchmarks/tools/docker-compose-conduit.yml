@@ -1,6 +1,7 @@
 services:
   conduit:
     image: ghcr.io/conduitio/conduit:v0.13.1
+    container_name: benchi-conduit
     networks:
       - benchi
     ports:
