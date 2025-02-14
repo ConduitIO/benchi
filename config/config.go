@@ -28,8 +28,10 @@ type ServiceConfig struct {
 	DockerCompose string `yaml:"docker-compose"`
 }
 
-type Infrastructure map[string]ServiceConfig
-type Tools map[string]ServiceConfig
+type (
+	Infrastructure map[string]ServiceConfig
+	Tools          map[string]ServiceConfig
+)
 
 type MetricsCollector struct {
 	Collector string            `yaml:"collector"`

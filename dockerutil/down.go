@@ -27,44 +27,44 @@ import (
 //
 // Returns error if the compose command fails.
 func ComposeDown(ctx context.Context, composeOpt ComposeOptions, downOpt DownOptions) error {
-    cmd := downCmd(ctx, composeOpt, downOpt)
-    return Exec(cmd)
+	cmd := downCmd(ctx, composeOpt, downOpt)
+	return Exec(cmd)
 }
 
 // DownOptions represents the options for the down command.
 type DownOptions struct {
-    DryRun        *bool   //     --dry-run          Execute command in dry run mode
-    RemoveOrphans *bool   //     --remove-orphans   Remove containers for services not defined in the Compose file
-    Rmi           *string //     --rmi string       Remove images used by services. "local" remove only images that don't have a custom tag ("local"|"all")
-    Timeout       *int    // -t, --timeout int      Specify a shutdown timeout in seconds
-    Volumes       *bool   // -v, --volumes          Remove named volumes declared in the "volumes" section
+	DryRun        *bool   //     --dry-run          Execute command in dry run mode
+	RemoveOrphans *bool   //     --remove-orphans   Remove containers for services not defined in the Compose file
+	Rmi           *string //     --rmi string       Remove images used by services. "local" remove only images that don't have a custom tag ("local"|"all")
+	Timeout       *int    // -t, --timeout int      Specify a shutdown timeout in seconds
+	Volumes       *bool   // -v, --volumes          Remove named volumes declared in the "volumes" section
 }
 
 func (opt DownOptions) flags() []string {
-    var flags []string
-    if opt.DryRun != nil && *opt.DryRun {
-        flags = append(flags, "--dry-run")
-    }
-    if opt.RemoveOrphans != nil && *opt.RemoveOrphans {
-        flags = append(flags, "--remove-orphans")
-    }
-    if opt.Rmi != nil {
-        flags = append(flags, "--rmi", *opt.Rmi)
-    }
-    if opt.Timeout != nil {
-        flags = append(flags, "-t", fmt.Sprintf("%d", *opt.Timeout))
-    }
-    if opt.Volumes != nil && *opt.Volumes {
-        flags = append(flags, "-v")
-    }
-    return flags
+	var flags []string
+	if opt.DryRun != nil && *opt.DryRun {
+		flags = append(flags, "--dry-run")
+	}
+	if opt.RemoveOrphans != nil && *opt.RemoveOrphans {
+		flags = append(flags, "--remove-orphans")
+	}
+	if opt.Rmi != nil {
+		flags = append(flags, "--rmi", *opt.Rmi)
+	}
+	if opt.Timeout != nil {
+		flags = append(flags, "-t", fmt.Sprintf("%d", *opt.Timeout))
+	}
+	if opt.Volumes != nil && *opt.Volumes {
+		flags = append(flags, "-v")
+	}
+	return flags
 }
 
 func downCmd(ctx context.Context, composeOpt ComposeOptions, downOpt DownOptions) *exec.Cmd {
-    cmd := composeCmd(ctx, composeOpt)
+	cmd := composeCmd(ctx, composeOpt)
 
-    cmd.Args = append(cmd.Args, "down")
-    cmd.Args = append(cmd.Args, downOpt.flags()...)
+	cmd.Args = append(cmd.Args, "down")
+	cmd.Args = append(cmd.Args, downOpt.flags()...)
 
-    return cmd
+	return cmd
 }

@@ -42,7 +42,7 @@ func Run(ctx context.Context, cfg config.Config, opt RunOptions) error {
 	}
 
 	// Create output directory if it does not exist.
-	err := os.MkdirAll(opt.OutPath, 0755)
+	err := os.MkdirAll(opt.OutPath, 0o755)
 	if err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
@@ -58,15 +58,11 @@ func Run(ctx context.Context, cfg config.Config, opt RunOptions) error {
 		}
 
 		metrics := make([]config.MetricsCollector, 0, len(cfg.Metrics)+len(t.Metrics))
-		for _, v := range cfg.Metrics {
-			metrics = append(metrics, v)
-		}
-		for _, v := range t.Metrics {
-			metrics = append(metrics, v)
-		}
+		metrics = append(metrics, cfg.Metrics...)
+		metrics = append(metrics, t.Metrics...)
 
 		toolNames := slices.Collect(maps.Keys(cfg.Tools))
-		for k, _ := range t.Tools {
+		for k := range t.Tools {
 			if _, ok := cfg.Tools[k]; !ok {
 				toolNames = append(toolNames, k)
 			}
@@ -99,7 +95,6 @@ func Run(ctx context.Context, cfg config.Config, opt RunOptions) error {
 				Tool:    tool,
 				OutPath: filepath.Join(opt.OutPath, fmt.Sprintf("%s_%s", time.Now().Format("20060102"), tool)),
 			}.Run(ctx)
-
 			if err != nil {
 				return fmt.Errorf("failed to run test %d (%s): %w", i, tool, err)
 			}
