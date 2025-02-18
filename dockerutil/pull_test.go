@@ -20,20 +20,20 @@ import (
 	"testing"
 )
 
-func TestComposeDownCmd(t *testing.T) {
+func TestComposePullCmd(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
 		name       string
 		composeOpt ComposeOptions
-		downOpt    ComposeDownOptions
+		pullOpt    ComposePullOptions
 		wantArgs   []string
 	}{
 		{
 			name:       "empty options",
 			composeOpt: ComposeOptions{},
-			downOpt:    ComposeDownOptions{},
-			wantArgs:   []string{"docker", "compose", "down"},
+			pullOpt:    ComposePullOptions{},
+			wantArgs:   []string{"docker", "compose", "pull"},
 		},
 		{
 			name: "compose options only",
@@ -41,49 +41,58 @@ func TestComposeDownCmd(t *testing.T) {
 				ProjectName: ptr("test-project"),
 				File:        []string{"docker-compose.yml"},
 			},
-			downOpt:  ComposeDownOptions{},
-			wantArgs: []string{"docker", "compose", "-f", "docker-compose.yml", "--project-name", "test-project", "down"},
+			pullOpt:  ComposePullOptions{},
+			wantArgs: []string{"docker", "compose", "-f", "docker-compose.yml", "--project-name", "test-project", "pull"},
 		},
 		{
-			name:       "down options only",
+			name:       "pull options only",
 			composeOpt: ComposeOptions{},
-			downOpt: ComposeDownOptions{
-				Volumes:       ptr(true),
-				RemoveOrphans: ptr(true),
+			pullOpt: ComposePullOptions{
+				Quiet:              ptr(true),
+				IgnorePullFailures: ptr(true),
+				Policy:             ptr("always"),
 			},
-			wantArgs: []string{"docker", "compose", "down", "--remove-orphans", "-v"},
+			wantArgs: []string{"docker", "compose", "pull", "--ignore-pull-failures", "--policy", "always", "--quiet"},
 		},
 		{
-			name: "both compose and down options",
+			name: "both compose and pull options",
 			composeOpt: ComposeOptions{
 				ProjectName: ptr("test-project"),
 				File:        []string{"docker-compose.yml"},
 			},
-			downOpt: ComposeDownOptions{
-				Volumes:       ptr(true),
-				RemoveOrphans: ptr(true),
-				Timeout:       ptr(30),
-				Rmi:           ptr("local"),
+			pullOpt: ComposePullOptions{
+				Quiet:       ptr(true),
+				IncludeDeps: ptr(true),
+				Policy:      ptr("missing"),
+				Services:    []string{"service1", "service2"},
 			},
 			wantArgs: []string{
 				"docker", "compose",
 				"-f", "docker-compose.yml",
 				"--project-name", "test-project",
-				"down",
-				"--remove-orphans",
-				"--rmi", "local",
-				"-t", "30",
-				"-v",
+				"pull",
+				"--include-deps",
+				"--policy", "missing",
+				"--quiet",
+				"service1", "service2",
 			},
+		},
+		{
+			name:       "with services only",
+			composeOpt: ComposeOptions{},
+			pullOpt: ComposePullOptions{
+				Services: []string{"service1", "service2"},
+			},
+			wantArgs: []string{"docker", "compose", "pull", "service1", "service2"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cmd := downCmd(ctx, tt.composeOpt, tt.downOpt)
+			cmd := pullCmd(ctx, tt.composeOpt, tt.pullOpt)
 
 			if !reflect.DeepEqual(cmd.Args, tt.wantArgs) {
-				t.Errorf("downCmd() args = %v, want %v", cmd.Args, tt.wantArgs)
+				t.Errorf("pullCmd() args = %v, want %v", cmd.Args, tt.wantArgs)
 			}
 		})
 	}

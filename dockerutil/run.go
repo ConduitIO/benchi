@@ -50,7 +50,5 @@ func RunInDockerNetwork(ctx context.Context, cmd *exec.Cmd, networkName string) 
 	dockerCmd.Stdout = cmd.Stdout
 	dockerCmd.Stderr = cmd.Stderr
 
-	dockerCmd.Dir = DirFromContext(ctx)
-
-	return Exec(cmd)
+	return execCmd(cmd)
 }

@@ -88,7 +88,5 @@ func composeCmd(ctx context.Context, composeOpt ComposeOptions) *exec.Cmd {
 	cmd.Stdout = composeOpt.Stdout
 	cmd.Stderr = composeOpt.Stderr
 
-	cmd.Dir = DirFromContext(ctx)
-
 	return cmd
 }

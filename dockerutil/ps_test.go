@@ -26,13 +26,13 @@ func TestComposePsCmd(t *testing.T) {
 	tests := []struct {
 		name       string
 		composeOpt ComposeOptions
-		psOpt      PsOptions
+		psOpt      ComposePsOptions
 		wantArgs   []string
 	}{
 		{
 			name:       "empty options",
 			composeOpt: ComposeOptions{},
-			psOpt:      PsOptions{},
+			psOpt:      ComposePsOptions{},
 			wantArgs:   []string{"docker", "compose", "ps"},
 		},
 		{
@@ -41,13 +41,13 @@ func TestComposePsCmd(t *testing.T) {
 				ProjectName: ptr("test-project"),
 				File:        []string{"docker-compose.yml"},
 			},
-			psOpt:    PsOptions{},
+			psOpt:    ComposePsOptions{},
 			wantArgs: []string{"docker", "compose", "-f", "docker-compose.yml", "--project-name", "test-project", "ps"},
 		},
 		{
 			name:       "ps options only",
 			composeOpt: ComposeOptions{},
-			psOpt: PsOptions{
+			psOpt: ComposePsOptions{
 				All:      ptr(true),
 				Quiet:    ptr(true),
 				NoTrunc:  ptr(true),
@@ -62,7 +62,7 @@ func TestComposePsCmd(t *testing.T) {
 				ProjectName: ptr("test-project"),
 				File:        []string{"docker-compose.yml"},
 			},
-			psOpt: PsOptions{
+			psOpt: ComposePsOptions{
 				All:          ptr(true),
 				Format:       ptr("json"),
 				ServiceNames: []string{"web", "db"},
@@ -80,7 +80,7 @@ func TestComposePsCmd(t *testing.T) {
 		{
 			name:       "with service names only",
 			composeOpt: ComposeOptions{},
-			psOpt: PsOptions{
+			psOpt: ComposePsOptions{
 				ServiceNames: []string{"web", "db"},
 			},
 			wantArgs: []string{"docker", "compose", "ps", "web", "db"},

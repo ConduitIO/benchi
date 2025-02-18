@@ -23,16 +23,16 @@ import (
 // ComposeUp starts a docker compose project.
 //
 // ComposeOptions contains general compose config like project name and files.
-// UpOptions contains options specific to the up command like detach and timeout.
+// ComposeUpOptions contains options specific to the up command like detach and timeout.
 //
 // Returns error if the compose command fails.
-func ComposeUp(ctx context.Context, composeOpt ComposeOptions, upOpt UpOptions) error {
+func ComposeUp(ctx context.Context, composeOpt ComposeOptions, upOpt ComposeUpOptions) error {
 	cmd := upCmd(ctx, composeOpt, upOpt)
-	return Exec(cmd)
+	return execCmd(cmd)
 }
 
-// UpOptions represents the options for the up command.
-type UpOptions struct {
+// ComposeUpOptions represents the options for the up command.
+type ComposeUpOptions struct {
 	AbortOnContainerExit    *bool    //     --abort-on-container-exit      Stops all containers if any container was stopped. Incompatible with -d
 	AbortOnContainerFailure *bool    //     --abort-on-container-failure   Stops all containers if any container exited with failure. Incompatible with -d
 	AlwaysRecreateDeps      *bool    //     --always-recreate-deps         Recreate dependent containers. Incompatible with --no-recreate.
@@ -64,7 +64,7 @@ type UpOptions struct {
 	Yes                     *bool    // -y, --y                            Assume "yes" as answer to all prompts and run non-interactively
 }
 
-func (opt UpOptions) flags() []string {
+func (opt ComposeUpOptions) flags() []string {
 	var flags []string
 	if opt.AbortOnContainerExit != nil && *opt.AbortOnContainerExit {
 		flags = append(flags, "--abort-on-container-exit")
@@ -156,7 +156,7 @@ func (opt UpOptions) flags() []string {
 	return flags
 }
 
-func upCmd(ctx context.Context, composeOpt ComposeOptions, upOpt UpOptions) *exec.Cmd {
+func upCmd(ctx context.Context, composeOpt ComposeOptions, upOpt ComposeUpOptions) *exec.Cmd {
 	cmd := composeCmd(ctx, composeOpt)
 
 	cmd.Args = append(cmd.Args, "up")

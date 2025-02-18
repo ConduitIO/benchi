@@ -26,13 +26,13 @@ func TestComposeUpCmd(t *testing.T) {
 	tests := []struct {
 		name       string
 		composeOpt ComposeOptions
-		upOpt      UpOptions
+		upOpt      ComposeUpOptions
 		wantArgs   []string
 	}{
 		{
 			name:       "empty options",
 			composeOpt: ComposeOptions{},
-			upOpt:      UpOptions{},
+			upOpt:      ComposeUpOptions{},
 			wantArgs:   []string{"docker", "compose", "up"},
 		},
 		{
@@ -41,13 +41,13 @@ func TestComposeUpCmd(t *testing.T) {
 				ProjectName: ptr("test-project"),
 				File:        []string{"docker-compose.yml"},
 			},
-			upOpt:    UpOptions{},
+			upOpt:    ComposeUpOptions{},
 			wantArgs: []string{"docker", "compose", "-f", "docker-compose.yml", "--project-name", "test-project", "up"},
 		},
 		{
 			name:       "up options only",
 			composeOpt: ComposeOptions{},
-			upOpt: UpOptions{
+			upOpt: ComposeUpOptions{
 				Detach:        ptr(true),
 				RemoveOrphans: ptr(true),
 			},
@@ -59,7 +59,7 @@ func TestComposeUpCmd(t *testing.T) {
 				ProjectName: ptr("test-project"),
 				File:        []string{"docker-compose.yml"},
 			},
-			upOpt: UpOptions{
+			upOpt: ComposeUpOptions{
 				Detach:        ptr(true),
 				RemoveOrphans: ptr(true),
 				Timeout:       ptr(30),

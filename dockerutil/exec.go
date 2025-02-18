@@ -19,7 +19,7 @@ import (
 	"os/exec"
 )
 
-func Exec(cmd *exec.Cmd) error {
+func execCmd(cmd *exec.Cmd) error {
 	slog.Debug("Executing command", "command", cmd.String())
 
 	return cmd.Run()

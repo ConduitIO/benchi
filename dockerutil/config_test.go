@@ -20,20 +20,20 @@ import (
 	"testing"
 )
 
-func TestComposeDownCmd(t *testing.T) {
+func TestComposeConfigCmd(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
 		name       string
 		composeOpt ComposeOptions
-		downOpt    ComposeDownOptions
+		configOpt  ComposeConfigOptions
 		wantArgs   []string
 	}{
 		{
 			name:       "empty options",
 			composeOpt: ComposeOptions{},
-			downOpt:    ComposeDownOptions{},
-			wantArgs:   []string{"docker", "compose", "down"},
+			configOpt:  ComposeConfigOptions{},
+			wantArgs:   []string{"docker", "compose", "config"},
 		},
 		{
 			name: "compose options only",
@@ -41,49 +41,44 @@ func TestComposeDownCmd(t *testing.T) {
 				ProjectName: ptr("test-project"),
 				File:        []string{"docker-compose.yml"},
 			},
-			downOpt:  ComposeDownOptions{},
-			wantArgs: []string{"docker", "compose", "-f", "docker-compose.yml", "--project-name", "test-project", "down"},
+			configOpt: ComposeConfigOptions{},
+			wantArgs:  []string{"docker", "compose", "-f", "docker-compose.yml", "--project-name", "test-project", "config"},
 		},
 		{
-			name:       "down options only",
+			name:       "config options only",
 			composeOpt: ComposeOptions{},
-			downOpt: ComposeDownOptions{
-				Volumes:       ptr(true),
-				RemoveOrphans: ptr(true),
+			configOpt: ComposeConfigOptions{
+				Format: ptr("json"),
 			},
-			wantArgs: []string{"docker", "compose", "down", "--remove-orphans", "-v"},
+			wantArgs: []string{"docker", "compose", "config", "--format", "json"},
 		},
 		{
-			name: "both compose and down options",
+			name: "both compose and config options",
 			composeOpt: ComposeOptions{
 				ProjectName: ptr("test-project"),
 				File:        []string{"docker-compose.yml"},
 			},
-			downOpt: ComposeDownOptions{
-				Volumes:       ptr(true),
-				RemoveOrphans: ptr(true),
-				Timeout:       ptr(30),
-				Rmi:           ptr("local"),
+			configOpt: ComposeConfigOptions{
+				Format: ptr("json"),
+				Quiet:  ptr(true),
 			},
 			wantArgs: []string{
 				"docker", "compose",
 				"-f", "docker-compose.yml",
 				"--project-name", "test-project",
-				"down",
-				"--remove-orphans",
-				"--rmi", "local",
-				"-t", "30",
-				"-v",
+				"config",
+				"--format", "json",
+				"--quiet",
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cmd := downCmd(ctx, tt.composeOpt, tt.downOpt)
+			cmd := configCmd(ctx, tt.composeOpt, tt.configOpt)
 
 			if !reflect.DeepEqual(cmd.Args, tt.wantArgs) {
-				t.Errorf("downCmd() args = %v, want %v", cmd.Args, tt.wantArgs)
+				t.Errorf("configCmd() args = %v, want %v", cmd.Args, tt.wantArgs)
 			}
 		})
 	}

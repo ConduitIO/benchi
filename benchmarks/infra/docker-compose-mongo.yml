@@ -20,7 +20,7 @@ services:
     image: mongo:5
     container_name: benchi-mongo2
     networks:
-      - benchi-network
+      - benchi
     command:
       - '--replSet'
       - my-replica-set
@@ -33,7 +33,7 @@ services:
     image: mongo:5
     container_name: benchi-mongo3
     networks:
-      - benchi-network
+      - benchi
     command:
       - '--replSet'
       - my-replica-set

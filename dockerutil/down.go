@@ -23,16 +23,16 @@ import (
 // ComposeDown stops and removes a docker compose project.
 //
 // ComposeOptions contains general compose config like project name and files.
-// DownOptions contains options specific to the down command like volumes and timeout.
+// ComposeDownOptions contains options specific to the down command like volumes and timeout.
 //
 // Returns error if the compose command fails.
-func ComposeDown(ctx context.Context, composeOpt ComposeOptions, downOpt DownOptions) error {
+func ComposeDown(ctx context.Context, composeOpt ComposeOptions, downOpt ComposeDownOptions) error {
 	cmd := downCmd(ctx, composeOpt, downOpt)
-	return Exec(cmd)
+	return execCmd(cmd)
 }
 
-// DownOptions represents the options for the down command.
-type DownOptions struct {
+// ComposeDownOptions represents the options for the down command.
+type ComposeDownOptions struct {
 	DryRun        *bool   //     --dry-run          Execute command in dry run mode
 	RemoveOrphans *bool   //     --remove-orphans   Remove containers for services not defined in the Compose file
 	Rmi           *string //     --rmi string       Remove images used by services. "local" remove only images that don't have a custom tag ("local"|"all")
@@ -40,7 +40,7 @@ type DownOptions struct {
 	Volumes       *bool   // -v, --volumes          Remove named volumes declared in the "volumes" section
 }
 
-func (opt DownOptions) flags() []string {
+func (opt ComposeDownOptions) flags() []string {
 	var flags []string
 	if opt.DryRun != nil && *opt.DryRun {
 		flags = append(flags, "--dry-run")
@@ -60,7 +60,7 @@ func (opt DownOptions) flags() []string {
 	return flags
 }
 
-func downCmd(ctx context.Context, composeOpt ComposeOptions, downOpt DownOptions) *exec.Cmd {
+func downCmd(ctx context.Context, composeOpt ComposeOptions, downOpt ComposeDownOptions) *exec.Cmd {
 	cmd := composeCmd(ctx, composeOpt)
 
 	cmd.Args = append(cmd.Args, "down")

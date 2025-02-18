@@ -22,31 +22,30 @@ import (
 // ComposePs lists containers in a docker compose project.
 //
 // ComposeOptions contains general compose config like project name and files.
-// PsOptions contains options specific to the ps command.
+// ComposePsOptions contains options specific to the ps command.
 //
 // Returns error if the compose command fails.
-func ComposePs(ctx context.Context, composeOpt ComposeOptions, psOpt PsOptions) error {
+func ComposePs(ctx context.Context, composeOpt ComposeOptions, psOpt ComposePsOptions) error {
 	cmd := psCmd(ctx, composeOpt, psOpt)
-	return Exec(cmd)
+	return execCmd(cmd)
 }
 
-// PsOptions represents the options for the ps command.
-type PsOptions struct {
-	All      *bool    // -a, --all                  Show all stopped containers (including those created by the run command)
-	DryRun   *bool    //     --dry-run              Execute command in dry run mode
-	Filter   *string  //     --filter string        Filter services by a property (supported filters: status)
-	Format   *string  //     --format string        Format output using a custom template
+// ComposePsOptions represents the options for the ps command.
+type ComposePsOptions struct {
+	All      *bool    // -a, --all                 Show all stopped containers (including those created by the run command)
+	DryRun   *bool    //     --dry-run             Execute command in dry run mode
+	Filter   *string  //     --filter string       Filter services by a property (supported filters: status)
+	Format   *string  //     --format string       Format output using a custom template
 	NoTrunc  *bool    //     --no-trunc            Don't truncate output
 	Orphans  *bool    //     --orphans             Include orphaned services (not declared by project)
 	Quiet    *bool    // -q, --quiet               Only display IDs
 	Services *bool    //     --services            Display services
 	Status   []string //     --status stringArray  Filter services by status
 
-	// Optional list of services to show
-	ServiceNames []string
+	ServiceNames []string // Optional list of services to show
 }
 
-func (opt PsOptions) flags() []string {
+func (opt ComposePsOptions) flags() []string {
 	var flags []string
 	if opt.All != nil && *opt.All {
 		flags = append(flags, "--all")
@@ -82,7 +81,7 @@ func (opt PsOptions) flags() []string {
 	return flags
 }
 
-func psCmd(ctx context.Context, composeOpt ComposeOptions, psOpt PsOptions) *exec.Cmd {
+func psCmd(ctx context.Context, composeOpt ComposeOptions, psOpt ComposePsOptions) *exec.Cmd {
 	cmd := composeCmd(ctx, composeOpt)
 
 	cmd.Args = append(cmd.Args, "ps")

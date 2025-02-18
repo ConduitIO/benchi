@@ -37,18 +37,12 @@ import (
 type RunOptions struct {
 	// Dir is the working directory where the test is run. All relative paths
 	// are resolved relative to this directory.
-	Dir          string
 	OutPath      string
 	FilterTests  []string
 	DockerClient client.APIClient
 }
 
 func Run(ctx context.Context, cfg config.Config, opt RunOptions) error {
-
-	if opt.Dir != "" {
-		ctx = dockerutil.ContextWithDir(ctx, opt.Dir)
-	}
-
 	// Create output directory if it does not exist.
 	err := os.MkdirAll(opt.OutPath, 0o755)
 	if err != nil {
@@ -430,7 +424,7 @@ func (r *testRun) dockerComposeUpWait(
 				Stdout: f,
 				Stderr: f,
 			},
-			dockerutil.UpOptions{},
+			dockerutil.ComposeUpOptions{},
 		)
 	})
 
@@ -441,7 +435,7 @@ func (r *testRun) dockerComposeUpWait(
 			dockerutil.ComposeOptions{
 				File: dockerComposeFiles,
 			},
-			dockerutil.DownOptions{},
+			dockerutil.ComposeDownOptions{},
 		)
 	})
 
@@ -462,7 +456,7 @@ func (r *testRun) dockerComposeUpWait(
 				File:   dockerComposeFiles,
 				Stdout: &buf,
 			},
-			dockerutil.PsOptions{
+			dockerutil.ComposePsOptions{
 				Quiet: ptr(true),
 			},
 		)

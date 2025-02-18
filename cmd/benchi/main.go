@@ -58,6 +58,11 @@ func mainE() error {
 		return fmt.Errorf("config path is required")
 	}
 
+	err := os.Chdir(filepath.Dir(*configPath))
+	if err != nil {
+		return fmt.Errorf("could not change working directory: %w", err)
+	}
+
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
 		return err
@@ -79,7 +84,6 @@ func mainE() error {
 	err = benchi.Run(ctx, cfg, benchi.RunOptions{
 		OutPath:      *outPath,
 		FilterTests:  nil, // TODO: implement filter
-		Dir:          filepath.Dir(*configPath),
 		DockerClient: dockerClient,
 	})
 
@@ -94,7 +98,6 @@ func parseConfig() (config.Config, error) {
 	defer f.Close()
 	var cfg config.Config
 	err = yaml.NewDecoder(f).Decode(&cfg)
-	f.Close()
 	if err != nil {
 		return config.Config{}, err
 	}
