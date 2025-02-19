@@ -34,38 +34,24 @@ import (
 	"github.com/sourcegraph/conc/pool"
 )
 
-type RunOptions struct {
-	// Dir is the working directory where the test is run. All relative paths
-	// are resolved relative to this directory.
-	OutPath      string
-	FilterTests  []string
+type TestRunners []*TestRunner
+
+type TestRunnerOptions struct {
+	// ResultsDir is the directory where the test results are stored.
+	ResultsDir string
+	// StartedAt is the time when the test was started. All test results are
+	// stored in a subdirectory that includes this time in the name.
+	StartedAt time.Time
+	// FilterTests is a list of test names to run. If empty, all tests are run.
+	FilterTests []string
+	// FilterTools is a list of tool names to run. If empty, all tools are run.
+	FilterTools []string
+	// DockerClient is the Docker client to use for running the tests.
 	DockerClient client.APIClient
 }
 
-func Run(ctx context.Context, cfg config.Config, opt RunOptions) error {
-	// Create output directory if it does not exist.
-	err := os.MkdirAll(opt.OutPath, 0o755)
-	if err != nil {
-		return fmt.Errorf("failed to create output directory: %w", err)
-	}
-
-	testRuns := buildTestRuns(cfg, opt)
-	slog.Info("Identified tests", "count", len(testRuns))
-
-	for i, tr := range testRuns {
-		fmt.Println()
-		err = tr.Run(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to run test %d (%s): %w", i, tr.Tool, err)
-		}
-	}
-
-	return nil
-}
-
-func buildTestRuns(cfg config.Config, opt RunOptions) []*testRun {
-	now := time.Now()
-	runs := make([]*testRun, 0, len(cfg.Tests)*len(cfg.Tools))
+func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) TestRunners {
+	runs := make(TestRunners, 0, len(cfg.Tests)*len(cfg.Tools))
 
 	for _, t := range cfg.Tests {
 		// TODO filter
@@ -89,6 +75,7 @@ func buildTestRuns(cfg config.Config, opt RunOptions) []*testRun {
 		}
 
 		for _, tool := range toolNames {
+			// TODO filter
 			tools := make([]config.ServiceConfig, 0)
 			if cfg.Tools != nil {
 				toolCfg, ok := cfg.Tools[tool]
@@ -103,18 +90,20 @@ func buildTestRuns(cfg config.Config, opt RunOptions) []*testRun {
 				}
 			}
 
-			runs = append(runs, &testRun{
-				Infrastructure: infra,
-				Tools:          tools,
-				Metrics:        metrics,
+			runs = append(runs, &TestRunner{
+				infrastructure: infra,
+				tools:          tools,
+				metrics:        metrics,
 
-				Name:     t.Name,
-				Duration: t.Duration,
-				Steps:    t.Steps,
+				name:     t.Name,
+				duration: t.Duration,
+				steps:    t.Steps,
 
-				Tool:         tool,
-				OutPath:      filepath.Join(opt.OutPath, fmt.Sprintf("%s_%s_%s", now.Format("20060102150405"), t.Name, tool)),
-				DockerClient: opt.DockerClient,
+				tool:         tool,
+				resultsDir:   filepath.Join(opt.ResultsDir, fmt.Sprintf("%s_%s_%s", opt.StartedAt.Format("20060102150405"), t.Name, tool)),
+				dockerClient: opt.DockerClient,
+
+				logger: slog.Default().With("test", t.Name, "tool", tool),
 			})
 		}
 	}
@@ -122,108 +111,148 @@ func buildTestRuns(cfg config.Config, opt RunOptions) []*testRun {
 	return runs
 }
 
-// testRun is a single test run for a single tool.
-type testRun struct {
-	Infrastructure []config.ServiceConfig
-	Tools          []config.ServiceConfig
-	Metrics        []config.MetricsCollector
+// TestRunner is a single test run for a single tool.
+type TestRunner struct {
+	step Step
 
-	Name     string
-	Duration time.Duration
-	Steps    config.TestSteps
+	infrastructure []config.ServiceConfig
+	tools          []config.ServiceConfig
+	metrics        []config.MetricsCollector
 
-	Tool         string // Tool is the name of the tool to run the test with
-	OutPath      string // OutPath is the directory where the test results are stored
-	DockerClient client.APIClient
+	name     string
+	duration time.Duration
+	steps    config.TestSteps
 
-	cleanupFns        []func(context.Context) error
-	goroutinePool     *pool.ContextPool
-	goroutinePoolDead *atomic.Bool
+	tool         string // tool is the name of the tool to run the test with
+	resultsDir   string // resultsDir is the directory where the test results are stored
+	dockerClient client.APIClient
+
+	logger     *slog.Logger
+	cleanupFns []func(context.Context) error
 }
 
-func (r *testRun) Run(ctx context.Context) (err error) {
-	logger := slog.Default().With("name", r.Name, "tool", r.Tool)
-	logger.Info("Running test", "output", r.OutPath)
+//go:generate stringer -type=Step -linecomment
 
-	if _, err := os.Stat(r.OutPath); err == nil {
-		return fmt.Errorf("output folder %q already exists", r.OutPath)
-	}
-	if err := os.MkdirAll(r.OutPath, 0o755); err != nil {
-		return fmt.Errorf("failed to create output folder %q: %w", r.OutPath, err)
-	}
+type Step int
 
-	r.goroutinePool = pool.New().WithContext(ctx).WithCancelOnError()
-	r.goroutinePoolDead = &atomic.Bool{}
+const (
+	StepPreInfrastructure  Step = iota // pre-infrastructure
+	StepInfrastructure                 // infrastructure
+	StepPostInfrastructure             // post-infrastructure
+	StepPreTool                        // pre-tool
+	StepTool                           // tool
+	StepPostTool                       // post-tool
+	StepPreTest                        // pre-test
+	StepTest                           // test
+	StepPostTest                       // post-test
+	StepPreCleanup                     // pre-cleanup
+	StepCleanup                        // cleanup
+	StepPostCleanup                    // post-cleanup
+	StepDone                           // done
+)
 
-	// Always run cleanup, regardless of errors
-	defer func() {
-		cleanupSteps := []func(context.Context) error{
-			r.preCleanup,
-			r.cleanup,
-			r.postCleanup,
+func (r *TestRunner) Name() string {
+	return r.name
+}
+
+func (r *TestRunner) Tool() string {
+	return r.tool
+}
+
+func (r *TestRunner) Infrastructure() []config.ServiceConfig {
+	return r.infrastructure
+}
+
+func (r *TestRunner) Tools() []config.ServiceConfig {
+	return r.tools
+}
+
+// Run runs the test to completion.
+func (r *TestRunner) Run(ctx context.Context) error {
+	var errs []error
+	for {
+		currentStep := r.Step()
+		if currentStep == StepDone {
+			break
 		}
-		var errs []error
-		for _, step := range cleanupSteps {
-			if err := step(ctx); err != nil {
-				// Store the error but continue with cleanup
-				errs = append(errs, err)
-			}
-		}
-		if err == nil {
-			// return cleanup error
-			err = errors.Join(errs...)
-		} else if len(errs) > 0 {
-			// log cleanup error
-			slog.Error("cleanup failed", "error", errors.Join(errs...))
-		}
-	}()
 
-	steps := []func(context.Context) error{
-		r.preInfrastructure,
-		r.infrastructure,
-		r.postInfrastructure,
-		r.preTool,
-		r.tool,
-		r.postTool,
-		r.preTest,
-		r.test,
-		r.postTest,
-	}
-
-	// Run each step
-	for _, step := range steps {
-		if err := step(ctx); err != nil {
-			logger.Error("Test stopped because of an error", "error", err)
-			return err
+		err := r.RunStep(ctx)
+		if err != nil {
+			err = fmt.Errorf("error in step %s: %w", currentStep, err)
+			errs = append(errs, err)
 		}
 	}
+	return errors.Join(errs...)
+}
 
-	slog.Info("Test successful", "name", r.Name, "tool", r.Tool)
-	return nil
+func (r *TestRunner) Step() Step {
+	return r.step
+}
+
+// RunStep runs a single step in the test. This allows the caller to step
+// through the test one step at a time, updating the user interface as it goes.
+func (r *TestRunner) RunStep(ctx context.Context) error {
+	var err error
+	switch r.step {
+	case StepPreInfrastructure:
+		err = r.runPreInfrastructure(ctx)
+	case StepInfrastructure:
+		err = r.runInfrastructure(ctx)
+	case StepPostInfrastructure:
+		err = r.runPostInfrastructure(ctx)
+	case StepPreTool:
+		err = r.runPreTool(ctx)
+	case StepTool:
+		err = r.runTool(ctx)
+	case StepPostTool:
+		err = r.runPostTool(ctx)
+	case StepPreTest:
+		err = r.runPreTest(ctx)
+	case StepTest:
+		err = r.runTest(ctx)
+	case StepPostTest:
+		err = r.runPostTest(ctx)
+	case StepPreCleanup:
+		err = r.runPreCleanup(ctx)
+	case StepCleanup:
+		err = r.runCleanup(ctx)
+	case StepPostCleanup:
+		err = r.runPostCleanup(ctx)
+	case StepDone:
+		// noop
+	}
+
+	r.step = r.nextStep(r.step, err)
+	return err
 }
 
 // -- STEPS --------------------------------------------------------------------
 
-func (r *testRun) preInfrastructure(ctx context.Context) (err error) {
-	logger, lastLog := r.loggerForStep("pre-infrastructure")
+func (r *TestRunner) runPreInfrastructure(context.Context) (err error) {
+	_, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
-	_ = logger
+	if _, err := os.Stat(r.resultsDir); err == nil {
+		return fmt.Errorf("output folder %q already exists", r.resultsDir)
+	}
+	if err := os.MkdirAll(r.resultsDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create output folder %q: %w", r.resultsDir, err)
+	}
 
 	return nil
 }
 
-func (r *testRun) infrastructure(ctx context.Context) (err error) {
-	logger, lastLog := r.loggerForStep("infrastructure")
+func (r *TestRunner) runInfrastructure(ctx context.Context) (err error) {
+	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
-	paths := r.collectDockerComposeFiles(r.Infrastructure)
+	paths := r.collectDockerComposeFiles(r.infrastructure)
 	if len(paths) == 0 {
 		logger.Info("No infrastructure to start")
 		return nil
 	}
 
-	logPath := filepath.Join(r.OutPath, "infrastructure.log")
+	logPath := filepath.Join(r.resultsDir, "infrastructure.log")
 
 	err = r.dockerComposeUpWait(ctx, logger, paths, logPath)
 	if err != nil {
@@ -234,8 +263,8 @@ func (r *testRun) infrastructure(ctx context.Context) (err error) {
 	return nil
 }
 
-func (r *testRun) postInfrastructure(ctx context.Context) (err error) {
-	logger, lastLog := r.loggerForStep("post-infrastructure")
+func (r *TestRunner) runPostInfrastructure(context.Context) (err error) {
+	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
 	_ = logger
@@ -243,8 +272,8 @@ func (r *testRun) postInfrastructure(ctx context.Context) (err error) {
 	return nil
 }
 
-func (r *testRun) preTool(ctx context.Context) (err error) {
-	logger, lastLog := r.loggerForStep("pre-tool")
+func (r *TestRunner) runPreTool(context.Context) (err error) {
+	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
 	_ = logger
@@ -252,19 +281,19 @@ func (r *testRun) preTool(ctx context.Context) (err error) {
 	return nil
 }
 
-func (r *testRun) tool(ctx context.Context) (err error) {
-	logger, lastLog := r.loggerForStep("tool")
+func (r *TestRunner) runTool(ctx context.Context) (err error) {
+	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
 	_ = logger
 
-	paths := r.collectDockerComposeFiles(r.Tools)
+	paths := r.collectDockerComposeFiles(r.tools)
 	if len(paths) == 0 {
 		logger.Info("No tools to start")
 		return nil
 	}
 
-	logPath := filepath.Join(r.OutPath, "tools.log")
+	logPath := filepath.Join(r.resultsDir, "tools.log")
 
 	err = r.dockerComposeUpWait(ctx, logger, paths, logPath)
 	if err != nil {
@@ -275,8 +304,8 @@ func (r *testRun) tool(ctx context.Context) (err error) {
 	return nil
 }
 
-func (r *testRun) postTool(ctx context.Context) (err error) {
-	logger, lastLog := r.loggerForStep("post-tool")
+func (r *TestRunner) runPostTool(context.Context) (err error) {
+	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
 	_ = logger
@@ -284,8 +313,8 @@ func (r *testRun) postTool(ctx context.Context) (err error) {
 	return nil
 }
 
-func (r *testRun) preTest(ctx context.Context) (err error) {
-	logger, lastLog := r.loggerForStep("pre-test")
+func (r *TestRunner) runPreTest(context.Context) (err error) {
+	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
 	_ = logger
@@ -293,14 +322,14 @@ func (r *testRun) preTest(ctx context.Context) (err error) {
 	return nil
 }
 
-func (r *testRun) test(ctx context.Context) (err error) {
-	logger, lastLog := r.loggerForStep("test")
+func (r *TestRunner) runTest(ctx context.Context) (err error) {
+	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
 	const timeBetweenLogs = 5 * time.Second
 
-	endTestAt := time.Now().Add(r.Duration + 500*time.Millisecond) // Add 500ms to account for time drift and nicer log output
-	testCompleted := time.After(r.Duration)
+	endTestAt := time.Now().Add(r.duration + 500*time.Millisecond) // Add 500ms to account for time drift and nicer log output
+	testCompleted := time.After(r.duration)
 	logTicker := time.NewTicker(timeBetweenLogs)
 	defer logTicker.Stop()
 
@@ -321,8 +350,8 @@ func (r *testRun) test(ctx context.Context) (err error) {
 	return nil
 }
 
-func (r *testRun) postTest(ctx context.Context) (err error) {
-	logger, lastLog := r.loggerForStep("post-test")
+func (r *TestRunner) runPostTest(context.Context) (err error) {
+	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
 	_ = logger
@@ -330,8 +359,8 @@ func (r *testRun) postTest(ctx context.Context) (err error) {
 	return nil
 }
 
-func (r *testRun) preCleanup(ctx context.Context) (err error) {
-	logger, lastLog := r.loggerForStep("pre-cleanup")
+func (r *TestRunner) runPreCleanup(context.Context) (err error) {
+	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
 	_ = logger
@@ -339,8 +368,8 @@ func (r *testRun) preCleanup(ctx context.Context) (err error) {
 	return nil
 }
 
-func (r *testRun) cleanup(ctx context.Context) (err error) {
-	logger, lastLog := r.loggerForStep("cleanup")
+func (r *TestRunner) runCleanup(ctx context.Context) (err error) {
+	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
 	_ = logger
@@ -352,8 +381,8 @@ func (r *testRun) cleanup(ctx context.Context) (err error) {
 	return errors.Join(errs...)
 }
 
-func (r *testRun) postCleanup(ctx context.Context) (err error) {
-	logger, lastLog := r.loggerForStep("post-cleanup")
+func (r *TestRunner) runPostCleanup(context.Context) (err error) {
+	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
 	_ = logger
@@ -363,7 +392,7 @@ func (r *testRun) postCleanup(ctx context.Context) (err error) {
 
 // -- UTILS --------------------------------------------------------------------
 
-func (r *testRun) collectDockerComposeFiles(cfgs []config.ServiceConfig) []string {
+func (r *TestRunner) collectDockerComposeFiles(cfgs []config.ServiceConfig) []string {
 	paths := make([]string, len(cfgs))
 	for i, cfg := range cfgs {
 		paths[i] = cfg.DockerCompose
@@ -371,25 +400,10 @@ func (r *testRun) collectDockerComposeFiles(cfgs []config.ServiceConfig) []strin
 	return paths
 }
 
-// Go spawns a goroutine in the goroutine pool that runs the given function.
-// If the function returns an error, the goroutine pool is marked dead.
-func (r *testRun) Go(f func(ctx context.Context) error) {
-	r.goroutinePool.Go(func(ctx context.Context) error {
-		err := f(ctx)
-		if err != nil {
-			r.goroutinePoolDead.Store(true)
-		}
-		return err
-	})
-}
-
-// loggerForStep returns a logger for the given step name and a function that
+// prepareStep returns a logger for the given step name and a function that
 // logs the result of the step. The function should be deferred.
-func (r *testRun) loggerForStep(name string) (*slog.Logger, func(error)) {
-	logger := slog.Default().
-		With("test", r.Name).
-		With("tool", r.Tool).
-		With("step", name)
+func (r *TestRunner) loggerForStep(s Step) (*slog.Logger, func(error)) {
+	logger := r.logger.With("step", s.String())
 
 	logger.Info("Running step")
 	return logger, func(err error) {
@@ -401,7 +415,18 @@ func (r *testRun) loggerForStep(name string) (*slog.Logger, func(error)) {
 	}
 }
 
-func (r *testRun) dockerComposeUpWait(
+func (r *TestRunner) nextStep(s Step, err error) Step {
+	if s == StepDone {
+		return StepDone // no next step
+	}
+	// If an error occurred, we skip to the cleanup step.
+	if err != nil && s < StepPreCleanup {
+		return StepPreCleanup
+	}
+	return s + 1
+}
+
+func (r *TestRunner) dockerComposeUpWait(
 	ctx context.Context,
 	logger *slog.Logger,
 	dockerComposeFiles []string,
@@ -416,8 +441,9 @@ func (r *testRun) dockerComposeUpWait(
 		return f.Close()
 	})
 
-	r.Go(func(ctx context.Context) error {
-		return dockerutil.ComposeUp(
+	var composeUpErr atomic.Pointer[error]
+	go func() {
+		err := dockerutil.ComposeUp(
 			ctx,
 			dockerutil.ComposeOptions{
 				File:   dockerComposeFiles,
@@ -426,7 +452,11 @@ func (r *testRun) dockerComposeUpWait(
 			},
 			dockerutil.ComposeUpOptions{},
 		)
-	})
+		if err != nil && !errors.Is(err, context.Canceled) {
+			composeUpErr.Store(&err)
+			slog.Error("docker compose up failed", "error", err)
+		}
+	}()
 
 	r.cleanupFns = append(r.cleanupFns, func(ctx context.Context) error {
 		logger.Info("Stopping containers")
@@ -470,15 +500,15 @@ func (r *testRun) dockerComposeUpWait(
 	}
 
 	logger.Info(fmt.Sprintf("Identified %d containers", len(containers)))
-	if r.goroutinePoolDead.Load() {
-		return errors.New("failed to start containers")
+	if err := composeUpErr.Load(); err != nil && *err != nil {
+		return fmt.Errorf("failed to start containers: %w", *err)
 	}
 
 	wg := pool.New().WithErrors()
 	for _, c := range containers {
 		wg.Go(func() error {
 			for {
-				resp, err := r.DockerClient.ContainerInspect(ctx, c)
+				resp, err := r.dockerClient.ContainerInspect(ctx, c)
 				if err != nil {
 					return err
 				}

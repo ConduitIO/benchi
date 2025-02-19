@@ -40,7 +40,7 @@ tests:
       conduit:
         docker-compose: ./conduit/docker-compose-conduit.override.yml
 
-    steps:
+    steps: # TODO rename to hooks?
       pre-infrastructure:
       post-infrastructure:
         - name: "Create topics"

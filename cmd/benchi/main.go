@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/conduitio/benchi"
 	"github.com/conduitio/benchi/config"
@@ -58,9 +59,15 @@ func mainE() error {
 		return fmt.Errorf("config path is required")
 	}
 
-	err := os.Chdir(filepath.Dir(*configPath))
+	cfg, err := parseConfig()
 	if err != nil {
-		return fmt.Errorf("could not change working directory: %w", err)
+		return err
+	}
+
+	// Create output directory if it does not exist.
+	err = os.MkdirAll(*outPath, 0o755)
+	if err != nil {
+		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv)
@@ -76,16 +83,31 @@ func mainE() error {
 	slog.Info("Using network", "network", net.Name, "network-id", net.ID)
 	defer dockerutil.RemoveNetwork(ctx, dockerClient, net.Name)
 
-	cfg, err := parseConfig()
+	// Resolve absolute path before changing working directory
+	*outPath, err = filepath.Abs(*outPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get absolute path for output directory: %w", err)
 	}
 
-	err = benchi.Run(ctx, cfg, benchi.RunOptions{
-		OutPath:      *outPath,
+	err = os.Chdir(filepath.Dir(*configPath))
+	if err != nil {
+		return fmt.Errorf("could not change working directory: %w", err)
+	}
+
+	tests := benchi.BuildTestRunners(cfg, benchi.TestRunnerOptions{
+		ResultsDir:   *outPath,
+		StartedAt:    time.Now(),
 		FilterTests:  nil, // TODO: implement filter
+		FilterTools:  nil, // TODO: implement filter
 		DockerClient: dockerClient,
 	})
+
+	for _, t := range tests {
+		err := t.Run(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to run test: %w", err)
+		}
+	}
 
 	return nil
 }

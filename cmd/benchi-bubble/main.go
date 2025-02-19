@@ -61,7 +61,8 @@ func mainE() error {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	logPath := filepath.Join(*outPath, fmt.Sprintf("%s_benchi.log", time.Now().Format("20060102150405")))
+	now := time.Now()
+	logPath := filepath.Join(*outPath, fmt.Sprintf("%s_benchi.log", now.Format("20060102150405")))
 	logFile, err := os.Create(logPath)
 	if err != nil {
 		return fmt.Errorf("failed to create log file: %w", err)
@@ -88,14 +89,28 @@ func mainE() error {
 	slog.Info("Using network", "network", net.Name, "network-id", net.ID)
 	defer dockerutil.RemoveNetwork(ctx, dockerClient, net.Name)
 
+	// Resolve absolute path before changing working directory
+	*outPath, err = filepath.Abs(*outPath)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path for output directory: %w", err)
+	}
+
 	// Change working directory to config path, all relative paths are relative to the config file.
 	err = os.Chdir(filepath.Dir(*configPath))
 	if err != nil {
 		return fmt.Errorf("could not change working directory: %w", err)
 	}
 
+	tr := benchi.BuildTestRunners(cfg, benchi.TestRunnerOptions{
+		ResultsDir:   *outPath,
+		StartedAt:    now,
+		FilterTests:  nil,
+		FilterTools:  nil,
+		DockerClient: dockerClient,
+	})
+
 	// TODO run all tests
-	model, err := newTestModel(cfg, dockerClient)
+	model, err := newTestModel(dockerClient, tr[0])
 	if err != nil {
 		return fmt.Errorf("failed to create test model: %w", err)
 	}
@@ -118,16 +133,21 @@ func parseConfig() (config.Config, error) {
 }
 
 type testModel struct {
-	config config.Config
-	tool   string
+	runner      *benchi.TestRunner
+	errors      []error
+	currentStep benchi.Step
 
 	infrastructureModel *composeProjectModel
 	toolsModel          *composeProjectModel
 }
 
-func newTestModel(cfg config.Config, client client.APIClient) (tea.Model, error) {
-	infraFiles := make([]string, 0, len(cfg.Infrastructure))
-	for _, f := range cfg.Infrastructure {
+type stepResult struct {
+	err error
+}
+
+func newTestModel(client client.APIClient, runner *benchi.TestRunner) (tea.Model, error) {
+	infraFiles := make([]string, 0, len(runner.Infrastructure()))
+	for _, f := range runner.Infrastructure() {
 		infraFiles = append(infraFiles, f.DockerCompose)
 	}
 	infraComposeProject, err := benchi.NewComposeProject(infraFiles, client)
@@ -135,8 +155,8 @@ func newTestModel(cfg config.Config, client client.APIClient) (tea.Model, error)
 		return nil, err
 	}
 
-	toolFiles := make([]string, 0, len(cfg.Tools))
-	for _, f := range cfg.Tools {
+	toolFiles := make([]string, 0, len(runner.Tools()))
+	for _, f := range runner.Tools() {
 		toolFiles = append(toolFiles, f.DockerCompose)
 	}
 	toolComposeProject, err := benchi.NewComposeProject(toolFiles, client)
@@ -145,8 +165,7 @@ func newTestModel(cfg config.Config, client client.APIClient) (tea.Model, error)
 	}
 
 	return &testModel{
-		config: cfg,
-		tool:   "conduit",
+		runner: runner,
 
 		infrastructureModel: &composeProjectModel{
 			name:           "Infrastructure",
@@ -160,7 +179,14 @@ func newTestModel(cfg config.Config, client client.APIClient) (tea.Model, error)
 }
 
 func (m *testModel) Init() tea.Cmd {
-	return tea.Batch(m.infrastructureModel.Init(), m.toolsModel.Init())
+	return tea.Batch(m.infrastructureModel.Init(), m.toolsModel.Init(), m.step())
+}
+
+func (m *testModel) step() tea.Cmd {
+	return func() tea.Msg {
+		err := m.runner.RunStep(context.Background())
+		return stepResult{err: err}
+	}
 }
 
 func (m *testModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -179,13 +205,22 @@ func (m *testModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		return m, tea.Batch(cmds...)
+	case stepResult:
+		if msg.err != nil {
+			m.errors = append(m.errors, msg.err)
+		}
+		m.currentStep = m.runner.Step()
+		if m.currentStep != benchi.StepDone {
+			return m, m.step()
+		}
 	}
 
 	return m, nil
 }
 
 func (m *testModel) View() string {
-	s := "Running test Foo (1/3)"
+	s := fmt.Sprintf("Running test %s (1/3)", m.runner.Name())
+	s = fmt.Sprintf("Step: %s", m.currentStep)
 	s += "\n\n"
 	s += m.infrastructureModel.View()
 	s += "\n"
