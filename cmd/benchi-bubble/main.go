@@ -15,13 +15,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -137,8 +141,8 @@ type testModel struct {
 	errors      []error
 	currentStep benchi.Step
 
-	infrastructureModel *composeProjectModel
-	toolsModel          *composeProjectModel
+	infrastructureModel *containerMonitorModel
+	toolsModel          *containerMonitorModel
 }
 
 type stepResult struct {
@@ -150,7 +154,7 @@ func newTestModel(client client.APIClient, runner *benchi.TestRunner) (tea.Model
 	for _, f := range runner.Infrastructure() {
 		infraFiles = append(infraFiles, f.DockerCompose)
 	}
-	infraComposeProject, err := benchi.NewComposeProject(infraFiles, client)
+	infraContainers, err := findContainerNames(infraFiles)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +163,7 @@ func newTestModel(client client.APIClient, runner *benchi.TestRunner) (tea.Model
 	for _, f := range runner.Tools() {
 		toolFiles = append(toolFiles, f.DockerCompose)
 	}
-	toolComposeProject, err := benchi.NewComposeProject(toolFiles, client)
+	toolContainers, err := findContainerNames(toolFiles)
 	if err != nil {
 		return nil, err
 	}
@@ -167,14 +171,8 @@ func newTestModel(client client.APIClient, runner *benchi.TestRunner) (tea.Model
 	return &testModel{
 		runner: runner,
 
-		infrastructureModel: &composeProjectModel{
-			name:           "Infrastructure",
-			composeProject: infraComposeProject,
-		},
-		toolsModel: &composeProjectModel{
-			name:           "Tools",
-			composeProject: toolComposeProject,
-		},
+		infrastructureModel: newContainerMonitorModel(client, infraContainers),
+		toolsModel:          newContainerMonitorModel(client, toolContainers),
 	}, nil
 }
 
@@ -191,18 +189,15 @@ func (m *testModel) step() tea.Cmd {
 
 func (m *testModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case composeProjectModelTick:
+	case containerMonitorModelRefresh:
 		var cmds []tea.Cmd
 
 		var cmdTmp tea.Cmd
-		if m.infrastructureModel.name == msg.name {
-			m.infrastructureModel, cmdTmp = m.infrastructureModel.Update(msg)
-			cmds = append(cmds, cmdTmp)
-		}
-		if m.toolsModel.name == msg.name {
-			m.toolsModel, cmdTmp = m.toolsModel.Update(msg)
-			cmds = append(cmds, cmdTmp)
-		}
+		m.infrastructureModel, cmdTmp = m.infrastructureModel.Update(msg)
+		cmds = append(cmds, cmdTmp)
+
+		m.toolsModel, cmdTmp = m.toolsModel.Update(msg)
+		cmds = append(cmds, cmdTmp)
 
 		return m, tea.Batch(cmds...)
 	case stepResult:
@@ -222,47 +217,79 @@ func (m *testModel) View() string {
 	s := fmt.Sprintf("Running test %s (1/3)", m.runner.Name())
 	s = fmt.Sprintf("Step: %s", m.currentStep)
 	s += "\n\n"
+	s += "Infrastructure:\n"
 	s += m.infrastructureModel.View()
 	s += "\n"
+	s += "Tools:\n"
 	s += m.toolsModel.View()
 	return s
 }
 
-type composeProjectModel struct {
-	name           string
-	composeProject *benchi.ComposeProject
-
+type containerMonitorModel struct {
+	id         int32
+	client     client.APIClient
+	interval   time.Duration
 	containers []types.ContainerJSON
 }
 
-type composeProjectModelTick struct {
-	name string
+// containerMonitorModelID serves as a unique id generator for containerMonitorModel.
+var containerMonitorModelID atomic.Int32
+
+type containerMonitorModelRefresh struct {
+	containers []types.ContainerJSON
+	id         int32
 }
 
-func (m *composeProjectModel) doTick() tea.Cmd {
-	return func() tea.Msg {
-		return tea.Tick(500*time.Millisecond, func(time.Time) tea.Msg { return composeProjectModelTick{name: m.name} })
+func newContainerMonitorModel(client client.APIClient, containerNames []string) *containerMonitorModel {
+	containers := make([]types.ContainerJSON, len(containerNames))
+	for i, name := range containerNames {
+		containers[i] = types.ContainerJSON{ContainerJSONBase: &types.ContainerJSONBase{Name: name}}
+	}
+	return &containerMonitorModel{
+		id:         containerMonitorModelID.Add(1),
+		client:     client,
+		containers: containers,
+		interval:   500 * time.Millisecond,
 	}
 }
 
-func (m *composeProjectModel) Init() tea.Cmd {
-	m.containers = m.composeProject.Containers()
-	return m.doTick()
+func (m *containerMonitorModel) doRefresh() tea.Cmd {
+	return tea.Tick(m.interval, func(time.Time) tea.Msg {
+		containersTmp := slices.Clone(m.containers)
+		for i, c := range containersTmp {
+			slog.Debug("inspecting container", "name", c.Name)
+			inspect, err := m.client.ContainerInspect(context.Background(), c.Name)
+			if err != nil {
+				slog.Error("failed to inspect container", "name", c.Name, "error", err)
+				containersTmp[i] = types.ContainerJSON{ContainerJSONBase: &types.ContainerJSONBase{Name: c.Name}}
+				continue
+			}
+			containersTmp[i] = inspect
+		}
+
+		return containerMonitorModelRefresh{
+			id:         m.id,
+			containers: containersTmp,
+		}
+	})
 }
 
-func (m *composeProjectModel) Update(msg tea.Msg) (*composeProjectModel, tea.Cmd) {
-	tickMsg, ok := msg.(composeProjectModelTick)
-	if !ok || tickMsg.name != m.name {
+func (m *containerMonitorModel) Init() tea.Cmd {
+	return m.doRefresh()
+}
+
+func (m *containerMonitorModel) Update(msg tea.Msg) (*containerMonitorModel, tea.Cmd) {
+	refreshMsg, ok := msg.(containerMonitorModelRefresh)
+	if !ok || refreshMsg.id != m.id {
 		return m, nil
 	}
 
-	m.containers = m.composeProject.Containers()
-	return m, m.doTick()
+	m.containers = refreshMsg.containers
+	return m, m.doRefresh()
 }
 
-func (m *composeProjectModel) View() string {
+func (m *containerMonitorModel) View() string {
 	var s string
-	s += fmt.Sprintf("%s:\n", m.name)
 	for _, c := range m.containers {
 		if c.State == nil {
 			s += fmt.Sprintf("  - %s: %s\n", c.Name, "N/A")
@@ -278,18 +305,75 @@ func (m *composeProjectModel) View() string {
 	return s
 }
 
-func (m *composeProjectModel) Close() {
-	m.composeProject.Close()
+func findContainerNames(files []string) ([]string, error) {
+	var buf bytes.Buffer
+	err := dockerutil.ComposeConfig(
+		context.Background(),
+		dockerutil.ComposeOptions{
+			File:   files,
+			Stdout: &buf,
+		},
+		dockerutil.ComposeConfigOptions{
+			Format: ptr("json"),
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse compose files: %w", err)
+	}
+
+	var cfg map[string]any
+	err = json.NewDecoder(&buf).Decode(&cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse compose config: %w", err)
+	}
+
+	services, ok := cfg["services"].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("services not found in compose config")
+	}
+
+	containers := make([]string, 0, len(services))
+	for name, srv := range services {
+		srvMap, ok := srv.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("service %s is not a map", name)
+		}
+		containerName, ok := srvMap["container_name"].(string)
+		if !ok || containerName == "" {
+			containerName = name
+		}
+		containers = append(containers, containerName)
+	}
+	slices.Sort(containers)
+
+	return containers, nil
+}
+
+func ptr[T any](v T) *T {
+	return &v
 }
 
 /*
+Tests:
+[⣾] kafka-to-kafka
+  [⣾] conduit
 
-Loading tests ...
+      Step: infrastructure
 
-Tests to run:
-- kafka-to-kafka
-  - conduit
-  - kafka-connect
+      Infrastructure:
+       ⣾ benchi-zookeeper (zookeeper:3.9.0): starting
+       ⣾ benchi-kafka (kafka:3.9.0): starting
+
+      Tools:
+         benchi-conduit: N/A
+
+      Collectors:
+         kafka-docker-usage: waiting
+         conduit-docker-usage: waiting
+         conduit-metrics: waiting
+         kafka-metrics: waiting
+
+  [ ] kafka-connect
 
 ----------------------
 
