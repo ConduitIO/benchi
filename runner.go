@@ -73,6 +73,7 @@ func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) TestRunners {
 				toolNames = append(toolNames, k)
 			}
 		}
+		slices.Sort(toolNames)
 
 		for _, tool := range toolNames {
 			// TODO filter
@@ -157,6 +158,10 @@ func (r *TestRunner) Name() string {
 
 func (r *TestRunner) Tool() string {
 	return r.tool
+}
+
+func (r *TestRunner) Duration() time.Duration {
+	return r.duration
 }
 
 func (r *TestRunner) Infrastructure() []config.ServiceConfig {
