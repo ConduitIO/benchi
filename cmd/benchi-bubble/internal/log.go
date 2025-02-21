@@ -30,7 +30,7 @@ type LogModel struct {
 	lines       []string
 }
 
-type LogModelMsgLine struct {
+type LogModelMsg struct {
 	line string
 }
 
@@ -44,14 +44,14 @@ func NewLogModel(in io.Reader, displaySize int) LogModel {
 }
 
 func (m LogModel) Init() tea.Cmd {
-	return m.readLine()
+	return m.readLineCmd()
 }
 
 func (m LogModel) Update(msg tea.Msg) (LogModel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case LogModelMsgLine:
+	case LogModelMsg:
 		m.lines = append(m.lines[1:], msg.line)
-		return m, m.readLine()
+		return m, m.readLineCmd()
 	}
 	return m, nil
 }
@@ -60,7 +60,7 @@ func (m LogModel) View() string {
 	return strings.Join(m.lines, "\n")
 }
 
-func (m LogModel) readLine() tea.Cmd {
+func (m LogModel) readLineCmd() tea.Cmd {
 	return func() tea.Msg {
 		line, err := m.in.ReadString('\n')
 		if err != nil {
@@ -70,6 +70,6 @@ func (m LogModel) readLine() tea.Cmd {
 			return err
 		}
 		line = strings.TrimSpace(line)
-		return LogModelMsgLine{line: line}
+		return LogModelMsg{line: line}
 	}
 }

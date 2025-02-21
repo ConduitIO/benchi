@@ -22,27 +22,27 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// ProgressTimer is a model that combines a timer and a progress bar.
+// ProgressTimerModel is a model that combines a timer and a progress bar.
 // It's useful for showing a progress bar that fills up over time.
-type ProgressTimer struct {
+type ProgressTimerModel struct {
 	timeout  time.Duration
 	timer    timer.Model
 	progress progress.Model
 }
 
-func NewProgressTimer(timeout time.Duration, interval time.Duration, progressOpts ...progress.Option) ProgressTimer {
-	return ProgressTimer{
+func NewProgressTimerModel(timeout time.Duration, interval time.Duration, progressOpts ...progress.Option) ProgressTimerModel {
+	return ProgressTimerModel{
 		timeout:  timeout,
 		timer:    timer.NewWithInterval(timeout, interval),
 		progress: progress.New(progressOpts...),
 	}
 }
 
-func (m ProgressTimer) Init() tea.Cmd {
+func (m ProgressTimerModel) Init() tea.Cmd {
 	return tea.Batch(m.timer.Init(), m.progress.Init())
 }
 
-func (m ProgressTimer) Update(msg tea.Msg) (ProgressTimer, tea.Cmd) {
+func (m ProgressTimerModel) Update(msg tea.Msg) (ProgressTimerModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case timer.TickMsg:
 		var cmd tea.Cmd
@@ -52,6 +52,6 @@ func (m ProgressTimer) Update(msg tea.Msg) (ProgressTimer, tea.Cmd) {
 	return m, nil
 }
 
-func (m ProgressTimer) View() string {
+func (m ProgressTimerModel) View() string {
 	return m.progress.ViewAs(float64(m.timeout-m.timer.Timeout)/float64(m.timeout)) + " (" + m.timer.View() + ")"
 }

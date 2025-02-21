@@ -34,7 +34,7 @@ metrics:
 
 tests:
   - name: kafka-to-kafka
-    duration: 10s
+    duration: 30s
 
     tools:
       conduit:

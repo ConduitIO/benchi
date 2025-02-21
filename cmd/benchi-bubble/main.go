@@ -27,7 +27,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/bubbles/progress"
@@ -37,9 +36,7 @@ import (
 	"github.com/conduitio/benchi/cmd/benchi-bubble/internal"
 	"github.com/conduitio/benchi/config"
 	"github.com/conduitio/benchi/dockerutil"
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
-	"github.com/docker/docker/errdefs"
 	slogmulti "github.com/samber/slog-multi"
 	"gopkg.in/yaml.v3"
 )
@@ -159,10 +156,24 @@ func newMainModel(logReader io.Reader, now time.Time) mainModel {
 }
 
 func (m mainModel) Init() tea.Cmd {
-	return tea.Batch(m.init(), m.logModel.Init())
+	return tea.Batch(m.initCmd(), m.logModel.Init())
 }
 
-func (m mainModel) init() tea.Cmd {
+func (mainModel) parseConfig(path string) (config.Config, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return config.Config{}, err
+	}
+	defer f.Close()
+	var cfg config.Config
+	err = yaml.NewDecoder(f).Decode(&cfg)
+	if err != nil {
+		return config.Config{}, err
+	}
+	return cfg, nil
+}
+
+func (m mainModel) initCmd() tea.Cmd {
 	return func() tea.Msg {
 		now := time.Now()
 
@@ -225,27 +236,13 @@ func (m mainModel) init() tea.Cmd {
 	}
 }
 
-func (mainModel) parseConfig(path string) (config.Config, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return config.Config{}, err
-	}
-	defer f.Close()
-	var cfg config.Config
-	err = yaml.NewDecoder(f).Decode(&cfg)
-	if err != nil {
-		return config.Config{}, err
-	}
-	return cfg, nil
-}
-
-func (mainModel) runTest(index int) tea.Cmd {
+func (mainModel) runTestCmd(index int) tea.Cmd {
 	return func() tea.Msg {
 		return mainModelMsgNextTest{testIndex: index}
 	}
 }
 
-func (m mainModel) quit() tea.Cmd {
+func (m mainModel) quitCmd() tea.Cmd {
 	return func() tea.Msg {
 		slog.Info("Removing docker network", "network", networkName)
 		err := dockerutil.RemoveNetwork(m.cleanupCtx, m.dockerClient, networkName)
@@ -276,19 +273,20 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tests = tests
 		m.initialized = true
 
-		return m, m.runTest(0)
+		return m, m.runTestCmd(0)
 	case mainModelMsgNextTest:
 		if msg.testIndex >= len(m.tests) {
-			return m, m.quit()
+			return m, m.quitCmd()
 		}
 		m.currentTestIndex = msg.testIndex
 		return m, m.tests[m.currentTestIndex].Init()
 	case testModelMsgDone:
+		nextIndex := m.currentTestIndex + 1
 		if m.ctx.Err() != nil {
 			// Main context is cancelled, skip to the end.
-			return m, m.runTest(len(m.tests))
+			nextIndex = len(m.tests)
 		}
-		return m, m.runTest(m.currentTestIndex + 1)
+		return m, m.runTestCmd(nextIndex)
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			if m.ctx.Err() == nil {
@@ -307,7 +305,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case error:
 		slog.Error("Error message", "error", msg)
 		return m, nil
-	case internal.LogModelMsgLine:
+	case internal.LogModelMsg:
 		var cmd tea.Cmd
 		m.logModel, cmd = m.logModel.Update(msg)
 		return m, cmd
@@ -349,10 +347,10 @@ type testModel struct {
 	errors      []error
 	currentStep benchi.Step
 
-	infrastructureModel containerMonitorModel
-	toolsModel          containerMonitorModel
+	infrastructureModel internal.ContainerMonitorModel
+	toolsModel          internal.ContainerMonitorModel
 
-	progress internal.ProgressTimer
+	progress internal.ProgressTimerModel
 }
 
 type testModelMsgStep struct {
@@ -386,8 +384,10 @@ func newTestModel(ctx context.Context, cleanupCtx context.Context, client client
 
 		runner: runner,
 
-		infrastructureModel: newContainerMonitorModel(client, infraContainers),
-		toolsModel:          newContainerMonitorModel(client, toolContainers),
+		// Run container monitor using the cleanup context, to keep monitor
+		// running during cleanup.
+		infrastructureModel: internal.NewContainerMonitorModel(cleanupCtx, client, infraContainers),
+		toolsModel:          internal.NewContainerMonitorModel(cleanupCtx, client, toolContainers),
 	}, nil
 }
 
@@ -435,18 +435,26 @@ func findContainerNames(files []string) ([]string, error) {
 	return containers, nil
 }
 
-func (m testModel) Init() tea.Cmd {
-	return tea.Batch(m.infrastructureModel.Init(), m.toolsModel.Init(), m.step(m.ctx))
+func ptr[T any](v T) *T {
+	return &v
 }
 
-func (m testModel) step(ctx context.Context) tea.Cmd {
+func (m testModel) Init() tea.Cmd {
+	return tea.Batch(
+		m.infrastructureModel.Init(),
+		m.toolsModel.Init(),
+		m.stepCmd(m.ctx),
+	)
+}
+
+func (m testModel) stepCmd(ctx context.Context) tea.Cmd {
 	return func() tea.Msg {
 		err := m.runner.RunStep(ctx)
 		return testModelMsgStep{err: err}
 	}
 }
 
-func (m testModel) done() tea.Cmd {
+func (m testModel) doneCmd() tea.Cmd {
 	return func() tea.Msg {
 		return testModelMsgDone{}
 	}
@@ -454,6 +462,10 @@ func (m testModel) done() tea.Cmd {
 
 func (m testModel) Update(msg tea.Msg) (testModel, tea.Cmd) {
 	switch msg := msg.(type) {
+
+	case testModelMsgDone:
+		return m, nil
+
 	case testModelMsgStep:
 		if msg.err != nil {
 			m.errors = append(m.errors, msg.err)
@@ -462,41 +474,48 @@ func (m testModel) Update(msg tea.Msg) (testModel, tea.Cmd) {
 
 		switch {
 		case m.currentStep == benchi.StepDone:
-			return m, m.done()
+			return m, m.doneCmd()
 		case m.currentStep >= benchi.StepPreCleanup:
-			return m, m.step(m.cleanupCtx)
+			// Cleanup steps use the cleanup context.
+			return m, m.stepCmd(m.cleanupCtx)
 		case m.currentStep == benchi.StepTest:
 			// Initialize progress bar.
-			m.progress = internal.NewProgressTimer(m.runner.Duration(), time.Second, progress.WithDefaultGradient())
-			return m, tea.Batch(m.step(m.ctx), m.progress.Init())
+			m.progress = internal.NewProgressTimerModel(
+				m.runner.Duration(),
+				time.Second,
+				progress.WithDefaultGradient(),
+				progress.WithoutPercentage(),
+			)
+			return m, tea.Batch(m.stepCmd(m.ctx), m.progress.Init())
 		default:
-			return m, m.step(m.ctx)
+			return m, m.stepCmd(m.ctx)
 		}
-	case testModelMsgDone:
-		return m, nil
+
 	case timer.TickMsg:
 		if m.currentStep == benchi.StepTest {
 			var cmd tea.Cmd
 			m.progress, cmd = m.progress.Update(msg)
 			return m, cmd
 		}
+
+	case internal.ContainerMonitorModelMsg:
+		var cmds []tea.Cmd
+
+		var cmdTmp tea.Cmd
+		m.infrastructureModel, cmdTmp = m.infrastructureModel.Update(msg)
+		cmds = append(cmds, cmdTmp)
+
+		m.toolsModel, cmdTmp = m.toolsModel.Update(msg)
+		cmds = append(cmds, cmdTmp)
+
+		return m, tea.Batch(cmds...)
 	}
 
-	var cmds []tea.Cmd
-
-	var cmdTmp tea.Cmd
-	m.infrastructureModel, cmdTmp = m.infrastructureModel.Update(msg)
-	cmds = append(cmds, cmdTmp)
-
-	m.toolsModel, cmdTmp = m.toolsModel.Update(msg)
-	cmds = append(cmds, cmdTmp)
-
-	return m, tea.Batch(cmds...)
+	return m, nil
 }
 
 func (m testModel) View() string {
-	s := fmt.Sprintf("Running test %s (1/3)", m.runner.Name())
-	s = fmt.Sprintf("Step: %s", m.currentStep)
+	s := fmt.Sprintf("Step: %s", m.currentStep)
 	if m.currentStep == benchi.StepTest {
 		s += " " + m.progress.View()
 	}
@@ -508,241 +527,3 @@ func (m testModel) View() string {
 	s += m.toolsModel.View()
 	return s
 }
-
-type containerMonitorModel struct {
-	id         int32
-	client     client.APIClient
-	interval   time.Duration
-	containers []types.ContainerJSON
-}
-
-// containerMonitorModelID serves as a unique id generator for containerMonitorModel.
-var containerMonitorModelID atomic.Int32
-
-type containerMonitorModelRefreshMsg struct {
-	containers []types.ContainerJSON
-	id         int32
-}
-
-func newContainerMonitorModel(client client.APIClient, containerNames []string) containerMonitorModel {
-	containers := make([]types.ContainerJSON, len(containerNames))
-	for i, name := range containerNames {
-		containers[i] = types.ContainerJSON{ContainerJSONBase: &types.ContainerJSONBase{Name: name}}
-	}
-	return containerMonitorModel{
-		id:         containerMonitorModelID.Add(1),
-		client:     client,
-		containers: containers,
-		interval:   500 * time.Millisecond,
-	}
-}
-
-func (m containerMonitorModel) scheduleRefresh() tea.Cmd {
-	return tea.Tick(m.interval, func(time.Time) tea.Msg {
-		containersTmp := slices.Clone(m.containers)
-		for i, c := range containersTmp {
-			slog.Debug("Inspecting container", "name", c.Name)
-			inspect, err := m.client.ContainerInspect(context.Background(), c.Name)
-			if err != nil {
-				if errdefs.IsNotFound(err) {
-					slog.Debug("Container not found", "name", c.Name)
-				} else {
-					slog.Error("Failed to inspect container", "name", c.Name, "error", err)
-				}
-				containersTmp[i] = types.ContainerJSON{ContainerJSONBase: &types.ContainerJSONBase{Name: c.Name}}
-				continue
-			}
-			containersTmp[i] = inspect
-		}
-
-		return containerMonitorModelRefreshMsg{
-			id:         m.id,
-			containers: containersTmp,
-		}
-	})
-}
-
-func (m containerMonitorModel) Init() tea.Cmd {
-	return m.scheduleRefresh()
-}
-
-func (m containerMonitorModel) Update(msg tea.Msg) (containerMonitorModel, tea.Cmd) {
-	refreshMsg, ok := msg.(containerMonitorModelRefreshMsg)
-	if !ok || refreshMsg.id != m.id {
-		return m, nil
-	}
-
-	m.containers = refreshMsg.containers
-	return m, m.scheduleRefresh()
-}
-
-func (m containerMonitorModel) View() string {
-	var s string
-	for _, c := range m.containers {
-		if c.State == nil {
-			s += fmt.Sprintf("  - %s: %s\n", c.Name, "N/A")
-			continue
-		}
-
-		s += fmt.Sprintf("  - %s: %s", c.Name, c.State.Status)
-		if c.State.Health != nil {
-			s += fmt.Sprintf(" (%s)", c.State.Health.Status)
-		}
-		s += "\n"
-	}
-	return s
-}
-
-func ptr[T any](v T) *T {
-	return &v
-}
-
-/*
-Tests:
-[⣾] kafka-to-kafka
-  [⣾] conduit
-
-      Step: infrastructure
-
-      Infrastructure:
-       ⣾ benchi-zookeeper (zookeeper:3.9.0): starting
-       ⣾ benchi-kafka (kafka:3.9.0): starting
-
-      Tools:
-         benchi-conduit: N/A
-
-      Collectors:
-         kafka-docker-usage: waiting
-         conduit-docker-usage: waiting
-         conduit-metrics: waiting
-         kafka-metrics: waiting
-
-  [ ] kafka-connect
-
-----------------------
-
-Running test (1/3)
-
-Test: kafka-to-kafka
-Tool: conduit
-Status: starting infrastructure
-
-Infrastructure:
- ⣾ benchi-zookeeper (zookeeper:3.9.0): starting
- ⣾ benchi-kafka (kafka:3.9.0): starting
-
-Tools:
-   benchi-conduit: waiting
-
-Collectors:
-   kafka-docker-usage: waiting
-   conduit-docker-usage: waiting
-   conduit-metrics: waiting
-   kafka-metrics: waiting
-
-----------------------
-
-Running test (1/3)
-
-Test: kafka-to-kafka
-Tool: conduit
-Status: starting tools
-
-Infrastructure:
- ✔ benchi-zookeeper (zookeeper:3.9.0): running (healthy)
- ✔ benchi-kafka (kafka:3.9.0): running (healthy)
-
-Tools:
- ⣾ benchi-conduit: starting
-
-Collectors:
-   kafka-docker-usage: waiting
-   conduit-docker-usage: waiting
-   conduit-metrics: waiting
-   kafka-metrics: waiting
-
-----------------------
-
-Running test (1/3)
-
-Test: kafka-to-kafka
-Tool: conduit
-Status: running (39s remaining)
-
-Infrastructure:
- ✔ benchi-zookeeper (zookeeper:3.9.0): running (healthy)
- ✔ benchi-kafka (kafka:3.9.0): running (healthy)
-
-Tools:
- ✔ benchi-conduit: running (consider adding a health-check)
-
-Collectors:
- ⣾ kafka-docker-usage: running
- ⣾ conduit-docker-usage: running
- ⣾ conduit-metrics: running
- ⣾ kafka-metrics: running
-
-----------------------
-
-Running test (1/3)
-
-Test: kafka-to-kafka
-Tool: conduit
-Status: stopping collectors
-
-Infrastructure:
- ✔ benchi-zookeeper (zookeeper:3.9.0): running (healthy)
- ✔ benchi-kafka (kafka:3.9.0): running (healthy)
-
-Tools:
- ✔ benchi-conduit: running (consider adding a health-check)
-
-Collectors:
- ✔ kafka-docker-usage: stopped
- ⣾ conduit-docker-usage: stopping
- ✔ conduit-metrics: stopped
- ⣾ kafka-metrics: stopping
-
-----------------------
-
-Running test (1/3)
-
-Test: kafka-to-kafka
-Tool: conduit
-Status: stopping tools
-
-Infrastructure:
- ✔ benchi-zookeeper (zookeeper:3.9.0): running (healthy)
- ✔ benchi-kafka (kafka:3.9.0): running (healthy)
-
- Tools:
- ✔ benchi-conduit: stopped
-
- Collectors:
- ✔ kafka-docker-usage: stopped
- ✔ conduit-docker-usage: stopped
- ✔ conduit-metrics: stopped
- ✔ kafka-metrics: stopped
-
-----------------------
-
-Running test (1/3)
-
-Test: kafka-to-kafka
-Tool: conduit
-Status: stopping infrastructure
-
-Infrastructure:
- ✔ benchi-zookeeper (zookeeper:3.9.0): stopped
- ✔ benchi-kafka (kafka:3.9.0): stopped
-
- Tools:
- ✔ benchi-conduit: stopped
-
- Collectors:
- ✔ kafka-docker-usage: stopped
- ✔ conduit-docker-usage: stopped
- ✔ conduit-metrics: stopped
- ✔ kafka-metrics: stopped
-
-*/
