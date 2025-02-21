@@ -34,6 +34,8 @@ import (
 	"github.com/sourcegraph/conc/pool"
 )
 
+const NetworkName = "benchi"
+
 type TestRunners []*TestRunner
 
 type TestRunnerOptions struct {

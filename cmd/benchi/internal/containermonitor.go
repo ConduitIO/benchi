@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -31,11 +32,12 @@ import (
 )
 
 var (
+	noColor     = os.Getenv("NO_COLOR") != ""
 	statusStyle = lipgloss.NewStyle().Bold(true)
 
-	statusRedStyle    = statusStyle.Foreground(lipgloss.Color("1")).Render
-	statusGreenStyle  = statusStyle.Foreground(lipgloss.Color("2")).Render
-	statusYellowStyle = statusStyle.Foreground(lipgloss.Color("3")).Render
+	statusRedStyle    = statusStyle.Foreground(lipgloss.Color("1"))
+	statusGreenStyle  = statusStyle.Foreground(lipgloss.Color("2"))
+	statusYellowStyle = statusStyle.Foreground(lipgloss.Color("3"))
 )
 
 type ContainerMonitorModel struct {
@@ -85,7 +87,7 @@ func (m ContainerMonitorModel) Update(msg tea.Msg) (ContainerMonitorModel, tea.C
 func (m ContainerMonitorModel) View() string {
 	var out string
 	for _, c := range m.containers {
-		style := statusStyle.Render
+		style := statusStyle
 		status := "N/A"
 
 		if c.State != nil {
@@ -115,8 +117,12 @@ func (m ContainerMonitorModel) View() string {
 				style = statusYellowStyle
 			}
 		}
+		if noColor {
+			style.UnsetBackground()
+			style.UnsetForeground()
+		}
 
-		out += fmt.Sprintf("  - %s: %s\n", c.Name, style(status))
+		out += fmt.Sprintf("  - %s: %s\n", c.Name, style.Render(status))
 	}
 	return out
 }

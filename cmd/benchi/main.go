@@ -37,6 +37,7 @@ import (
 	"github.com/conduitio/benchi/config"
 	"github.com/conduitio/benchi/dockerutil"
 	"github.com/docker/docker/client"
+	"github.com/lmittmann/tint"
 	slogmulti "github.com/samber/slog-multi"
 	"gopkg.in/yaml.v3"
 )
@@ -46,10 +47,6 @@ var (
 	outPath    = flag.String("out", "./results", "path to the output folder")
 	tools      = internal.StringsFlag("tool", nil, "filter tool to be tested (can be provided multiple times)")
 	tests      = internal.StringsFlag("tests", nil, "filter test to run (can be provided multiple times)")
-)
-
-const (
-	networkName = "benchi"
 )
 
 func main() {
@@ -72,7 +69,6 @@ func mainE() error {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	// Prepare logger.
 	now := time.Now()
 	pr, closeLog, err := prepareLogger(now)
 	defer closeLog()
@@ -96,7 +92,7 @@ func prepareLogger(now time.Time) (io.Reader, func() error, error) {
 		// Write all logs to the log file.
 		slog.NewTextHandler(logFile, &slog.HandlerOptions{Level: slog.LevelDebug}),
 		// Only write info and above to the pipe writer (CLI).
-		slog.NewTextHandler(pw, &slog.HandlerOptions{Level: slog.LevelInfo}),
+		tint.NewHandler(pw, &tint.Options{Level: slog.LevelInfo, NoColor: os.Getenv("NO_COLOR") != ""}),
 	)
 	slog.SetDefault(slog.New(logHandler))
 
@@ -209,14 +205,14 @@ func (m mainModel) initCmd() tea.Cmd {
 		// Create docker client and initialize network.
 		dockerClient, err := client.NewClientWithOpts(client.FromEnv)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to create docker client: %w", err)
 		}
 		defer dockerClient.Close()
 
-		slog.Info("Creating docker network", "network", networkName)
-		net, err := dockerutil.CreateNetworkIfNotExist(m.ctx, dockerClient, networkName)
+		slog.Info("Creating docker network", "network", benchi.NetworkName)
+		net, err := dockerutil.CreateNetworkIfNotExist(m.ctx, dockerClient, benchi.NetworkName)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to create docker network: %w", err)
 		}
 		slog.Info("Using network", "network", net.Name, "network-id", net.ID)
 
@@ -246,10 +242,10 @@ func (mainModel) runTestCmd(index int) tea.Cmd {
 
 func (m mainModel) quitCmd() tea.Cmd {
 	return func() tea.Msg {
-		slog.Info("Removing docker network", "network", networkName)
-		err := dockerutil.RemoveNetwork(m.cleanupCtx, m.dockerClient, networkName)
+		slog.Info("Removing docker network", "network", benchi.NetworkName)
+		err := dockerutil.RemoveNetwork(m.cleanupCtx, m.dockerClient, benchi.NetworkName)
 		if err != nil {
-			slog.Error("Failed to remove network", "network", networkName, "error", err)
+			slog.Error("Failed to remove network", "network", benchi.NetworkName, "error", err)
 		}
 		return tea.Quit()
 	}
