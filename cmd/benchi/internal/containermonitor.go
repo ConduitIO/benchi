@@ -85,35 +85,35 @@ func (m ContainerMonitorModel) Update(msg tea.Msg) (ContainerMonitorModel, tea.C
 func (m ContainerMonitorModel) View() string {
 	var out string
 	for _, c := range m.containers {
-		var status string
 		style := statusStyle.Render
+		status := "N/A"
 
-		if c.State == nil {
-			status = "N/A"
-		} else {
+		if c.State != nil {
 			status = c.State.Status
 
 			// Statuses: created, running, paused, restarting, removing, exited, dead
 			switch status {
 			case "running":
 				style = statusGreenStyle
+				if c.State.Health != nil {
+					switch {
+					case c.State.Health.Status == types.Healthy:
+						style = statusGreenStyle
+					case c.State.Health.Status == types.Unhealthy:
+						style = statusRedStyle
+					case c.State.Health.Status == types.Starting:
+						style = statusYellowStyle
+					}
+					status += fmt.Sprintf(" (%s)", c.State.Health.Status)
+				}
 			case "exited", "dead":
 				style = statusRedStyle
+				if c.State.Error != "" {
+					status += fmt.Sprintf(" (error: %s)", c.State.Error)
+				}
 			case "created", "paused", "restarting", "removing":
 				style = statusYellowStyle
 			}
-		}
-
-		if c.State != nil && c.State.Health != nil {
-			switch {
-			case c.State.Health.Status == types.Starting:
-				style = statusYellowStyle
-			case c.State.Health.Status == types.Healthy:
-				style = statusGreenStyle
-			case c.State.Health.Status == types.Unhealthy:
-				style = statusRedStyle
-			}
-			status += fmt.Sprintf(" (%s)", c.State.Health.Status)
 		}
 
 		out += fmt.Sprintf("  - %s: %s\n", c.Name, style(status))

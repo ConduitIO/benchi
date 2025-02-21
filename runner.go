@@ -54,7 +54,11 @@ func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) TestRunners {
 	runs := make(TestRunners, 0, len(cfg.Tests)*len(cfg.Tools))
 
 	for _, t := range cfg.Tests {
-		// TODO filter
+		if len(opt.FilterTests) > 0 && !slices.Contains(opt.FilterTests, t.Name) {
+			slog.Info("Skipping test", "test", t.Name, "filter", opt.FilterTests)
+			continue
+		}
+
 		infra := make([]config.ServiceConfig, 0, len(cfg.Infrastructure)+len(t.Infrastructure))
 		for _, v := range cfg.Infrastructure {
 			infra = append(infra, v)
@@ -76,7 +80,11 @@ func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) TestRunners {
 		slices.Sort(toolNames)
 
 		for _, tool := range toolNames {
-			// TODO filter
+			if len(opt.FilterTools) > 0 && !slices.Contains(opt.FilterTools, tool) {
+				slog.Info("Skipping tool", "tool", tool)
+				continue
+			}
+
 			tools := make([]config.ServiceConfig, 0)
 			if cfg.Tools != nil {
 				toolCfg, ok := cfg.Tools[tool]
@@ -517,9 +525,19 @@ func (r *TestRunner) dockerComposeUpWait(
 				if err != nil {
 					return err
 				}
+				logger.Debug("Inspected container", "container", c, "response", resp, "state", *resp.State)
+
+				/*
+					state="{Status:running Running:true Paused:false Restarting:false OOMKilled:false Dead:false Pid:3718 ExitCode:0 Error: StartedAt:2025-02-21T14:13:07.866660387Z FinishedAt:0001-01-01T00:00:00Z Health:0x1400041a1b0}"
+					state="{Status:exited Running:false Paused:false Restarting:false OOMKilled:false Dead:false Pid:0 ExitCode:1 Error: StartedAt:2025-02-21T14:13:07.866660387Z FinishedAt:2025-02-21T14:13:50.767663503Z Health:0x14000604990}"
+				*/
+
 				switch {
-				case resp.State.Dead:
-					return fmt.Errorf("container %s is dead", resp.Name)
+				case resp.State.Dead || (!resp.State.Running && resp.State.ExitCode != 0):
+					return fmt.Errorf("container %s is dead (exit code: %d, error: %q)", resp.Name, resp.State.ExitCode, resp.State.Error)
+				case !resp.State.Running && resp.State.ExitCode == 0:
+					logger.Warn("Container exited with code 0 (assuming it's an init container)", "container", resp.Name)
+					return nil
 				case resp.State.Health != nil && strings.EqualFold(resp.State.Health.Status, "healthy"):
 					logger.Info("Container is healthy", "container", resp.Name)
 					return nil
@@ -539,6 +557,7 @@ func (r *TestRunner) dockerComposeUpWait(
 		})
 	}
 
+	// TODO wait timeout? context deadline?
 	err = wg.Wait()
 	if err != nil {
 		return fmt.Errorf("failed to start containers: %w", err)
