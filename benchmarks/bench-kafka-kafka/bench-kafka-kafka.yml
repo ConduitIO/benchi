@@ -40,17 +40,14 @@ tests:
       conduit:
         docker-compose: ./conduit/docker-compose-conduit.override.yml
 
-    steps: # TODO rename to hooks?
+    steps:
       pre-infrastructure:
       post-infrastructure:
         - name: "Create topics"
-          container: "conduit"
+          container: "benchi-kafka"
           run: |
-            kafka-topics --create --topic bench-in --partitions 1 --replication-factor 1 --bootstrap-server localhost:9092
-            kafka-topics --create --topic bench-out --partitions 1 --replication-factor 1 --bootstrap-server localhost:9092
-        - name: "Produce messages"
-          container: "kafka"
-          run: "kafka-producer-perf-test --topic bench-in --num-records 1000000 --record-size 1000 --throughput -1 --producer-props bootstrap.servers=localhost:9092"
+            /opt/kafka/bin/kafka-topics.sh --create --topic bench-in --partitions 1 --replication-factor 1 --bootstrap-server benchi-kafka:9092
+            /opt/kafka/bin/kafka-topics.sh --create --topic bench-out --partitions 1 --replication-factor 1 --bootstrap-server benchi-kafka:9092
       pre-tool:
       post-tool:
       pre-test:

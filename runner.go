@@ -278,11 +278,19 @@ func (r *TestRunner) runInfrastructure(ctx context.Context) (err error) {
 	return nil
 }
 
-func (r *TestRunner) runPostInfrastructure(context.Context) (err error) {
+func (r *TestRunner) runPostInfrastructure(ctx context.Context) (err error) {
 	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
 	_ = logger
+
+	for _, step := range r.steps.PostInfrastructure {
+		slog.Info("Running command in container", "container", step.Container, "command", step.Run)
+		err := dockerutil.RunInContainer(ctx, step.Container, step.Run)
+		if err != nil {
+			return fmt.Errorf("failed to run command in container %q: %w", step.Container, err)
+		}
+	}
 
 	return nil
 }

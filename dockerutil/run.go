@@ -15,40 +15,103 @@
 package dockerutil
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"log/slog"
 	"os/exec"
-	"strings"
 )
 
-// RunInDockerNetwork executes a command in a temporary container connected to
-// the specified Docker network. The container will use the alpine image and
-// will be removed after execution.
-func RunInDockerNetwork(ctx context.Context, cmd *exec.Cmd, networkName string) error {
-	// Prepare the command string, preserving quotes and spaces
-	cmdStr := make([]string, len(cmd.Args))
-	for i, arg := range cmd.Args {
-		if strings.Contains(arg, " ") {
-			cmdStr[i] = fmt.Sprintf("'%s'", arg)
-		} else {
-			cmdStr[i] = arg
-		}
+// RunInContainer executes a command in the specified container. The container
+// must be running and the command will be executed in the container's default
+// shell.
+func RunInContainer(ctx context.Context, container, command string) error {
+	if command[len(command)-1] != '\n' {
+		command += "\n"
 	}
 
 	// Build the docker run command
 	dockerCmd := exec.CommandContext(ctx, "docker",
-		"run",
-		"--rm",                   // Remove container after execution
-		"--network", networkName, // Connect to specified network
-		"alpine",   // Use alpine as base image
-		"sh", "-c", // Run command through shell
-		strings.Join(cmdStr, " "), // The actual command to run
+		"exec",
+		"--interactive", // Keep stdin open
+		container,       // The container to run the command in
+		"sh",            // Run command through shell
 	)
 
-	// Forward stdin, stdout, and stderr
-	dockerCmd.Stdin = cmd.Stdin
-	dockerCmd.Stdout = cmd.Stdout
-	dockerCmd.Stderr = cmd.Stderr
+	return runDockerCmd(dockerCmd, container, command)
+}
 
-	return execCmd(cmd)
+// RunInDockerNetwork executes a command in a temporary container connected to
+// the specified Docker network. The container will use the alpine image and
+// will be removed after execution.
+func RunInDockerNetwork(ctx context.Context, networkName, command string) error {
+	// Build the docker run command
+	dockerCmd := exec.CommandContext(ctx, "docker",
+		"run",
+		"--rm",                   // Remove container after execution
+		"--interactive",          // Keep stdin open
+		"--network", networkName, // Connect to specified network
+		"alpine", // Use alpine as base image
+		"sh",     // Run command through shell
+	)
+
+	return runDockerCmd(dockerCmd, "[temporary]", command)
+}
+
+func runDockerCmd(dockerCmd *exec.Cmd, container, stdin string) error {
+	// Create pipes for stdin, stdout and stderr
+	stdinPipe, err := dockerCmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("failed to get stdin pipe: %w", err)
+	}
+	stdoutPipe, err := dockerCmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to get stdout pipe: %w", err)
+	}
+	stderrPipe, err := dockerCmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed to get stderr pipe: %w", err)
+	}
+
+	// Start the command
+	if err := dockerCmd.Start(); err != nil {
+		return fmt.Errorf("failed to start command: %w", err)
+	}
+
+	// Write the input string to stdin and close it
+	go func() {
+		defer stdinPipe.Close()
+		_, _ = stdinPipe.Write([]byte(stdin))
+	}()
+
+	// Read from stdout
+	go func() {
+		scn := bufio.NewScanner(stdoutPipe)
+		for scn.Scan() {
+			slog.Info(scn.Text(), "container", container, "stream", "stdout")
+		}
+		if err := scn.Err(); err != nil {
+			slog.Error("stdout scan error", "container", container, "error", err)
+		}
+	}()
+
+	// Read from stderr
+	go func() {
+		scn := bufio.NewScanner(stderrPipe)
+		for scn.Scan() {
+			slog.Error(scn.Text(), "container", container, "stream", "stderr")
+		}
+		if err := scn.Err(); err != nil {
+			slog.Error("stderr scan error", "container", container, "error", err)
+		}
+	}()
+
+	// Wait for the command to finish
+	return dockerCmd.Wait()
+}
+
+func execCmd(cmd *exec.Cmd) error {
+	slog.Debug("Executing command", "command", cmd.String())
+
+	return cmd.Run()
 }

@@ -5,6 +5,10 @@ services:
     platform: linux/amd64 # does not support arm64
     networks:
       - benchi
+    # Configure JMX exporter in command, so that the env var is not
+    # set in the container, making it possible to execute kafka cli
+    # tools without the JMX exporter.
+    command: sh -c 'KAFKA_JMX_OPTS="-javaagent:/opt/kafka/jmx/jmx_prometheus_javaagent-1.1.0.jar=7071:/opt/kafka/jmx/kafka-jmx-config.yml" /etc/kafka/docker/run'
     healthcheck:
       test: ["CMD", "nc", "-z", "benchi-kafka", "9092"]
       # health checks happen every 2s, failures in the first 30s are not counted
@@ -14,9 +18,6 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
-    ports:
-      - "9092:9092"
-      - "7071:7071"  # JMX Exporter port
     volumes:
       - ./kafka/jmx:/opt/kafka/jmx  # Mount JMX files
     environment:
@@ -28,7 +29,6 @@ services:
       KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://benchi-kafka:9092,CONTROLLER://benchi-kafka:9093'
       KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,SSL:SSL,SASL_PLAINTEXT:SASL_PLAINTEXT,SASL_SSL:SASL_SSL'
-      KAFKA_OPTS: "-javaagent:/opt/kafka/jmx/jmx_prometheus_javaagent-1.1.0.jar=7071:/opt/kafka/jmx/kafka-jmx-config.yml"
 
 networks:
   benchi:
