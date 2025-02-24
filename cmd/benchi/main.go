@@ -70,36 +70,40 @@ func mainE() error {
 	}
 
 	now := time.Now()
-	pr, closeLog, err := prepareLogger(now)
+	infoReader, errorReader, closeLog, err := prepareLogger(now)
 	defer closeLog()
 
-	_, err = tea.NewProgram(newMainModel(pr, now)).Run()
+	_, err = tea.NewProgram(newMainModel(infoReader, errorReader, now)).Run()
 	return err
 }
 
-func prepareLogger(now time.Time) (io.Reader, func() error, error) {
+func prepareLogger(now time.Time) (io.Reader, io.Reader, func() error, error) {
 	// Create log file.
 	logPath := filepath.Join(*outPath, fmt.Sprintf("%s_benchi.log", now.Format("20060102150405")))
 	logFile, err := os.Create(logPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create log file: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to create log file: %w", err)
 	}
 
-	// Create a pipe for the CLI to read logs.
-	pr, pw := io.Pipe()
+	// Create pipes for the CLI to read logs.
+	infoReader, infoWriter := io.Pipe()
+	errorReader, errorWriter := io.Pipe()
 
 	logHandler := slogmulti.Fanout(
 		// Write all logs to the log file.
 		slog.NewTextHandler(logFile, &slog.HandlerOptions{Level: slog.LevelDebug}),
 		// Only write info and above to the pipe writer (CLI).
-		tint.NewHandler(pw, &tint.Options{Level: slog.LevelInfo, NoColor: os.Getenv("NO_COLOR") != ""}),
+		tint.NewHandler(infoWriter, &tint.Options{Level: slog.LevelInfo, NoColor: os.Getenv("NO_COLOR") != ""}),
+		// Only write errors to another pipe, to show in the CLI.
+		tint.NewHandler(errorWriter, &tint.Options{Level: slog.LevelError, NoColor: os.Getenv("NO_COLOR") != ""}),
 	)
 	slog.SetDefault(slog.New(logHandler))
 
-	return pr, func() error {
+	return infoReader, errorReader, func() error {
 		var errs []error
 		errs = append(errs, logFile.Close())
-		errs = append(errs, pw.Close())
+		errs = append(errs, infoWriter.Close())
+		errs = append(errs, errorWriter.Close())
 		return errors.Join(errs...)
 	}, nil
 }
@@ -121,8 +125,9 @@ type mainModel struct {
 	tests            []testModel
 	currentTestIndex int
 
-	// Log model for the CLI.
-	logModel internal.LogModel
+	// Log models for the CLI.
+	infoLogModel  internal.LogModel
+	errorLogModel internal.LogModel
 }
 
 type mainModelMsgInitDone struct {
@@ -138,7 +143,7 @@ type mainModelMsgNextTest struct {
 	testIndex int
 }
 
-func newMainModel(logReader io.Reader, now time.Time) mainModel {
+func newMainModel(infoReader, errorReader io.Reader, now time.Time) mainModel {
 	ctx, ctxCancel := context.WithCancel(context.Background())
 	cleanupCtx, cleanupCtxCancel := context.WithCancel(context.Background())
 	return mainModel{
@@ -149,12 +154,13 @@ func newMainModel(logReader io.Reader, now time.Time) mainModel {
 
 		startedAt: now,
 
-		logModel: internal.NewLogModel(logReader, 10),
+		infoLogModel:  internal.NewLogModel(infoReader, 10),
+		errorLogModel: internal.NewLogModel(errorReader, 0),
 	}
 }
 
 func (m mainModel) Init() tea.Cmd {
-	return tea.Batch(m.initCmd(), m.logModel.Init())
+	return tea.Batch(m.initCmd(), m.infoLogModel.Init(), m.errorLogModel.Init())
 }
 
 func (mainModel) parseConfig(path string) (config.Config, error) {
@@ -304,9 +310,16 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		slog.Error("Error message", "error", msg)
 		return m, nil
 	case internal.LogModelMsg:
-		var cmd tea.Cmd
-		m.logModel, cmd = m.logModel.Update(msg)
-		return m, cmd
+		var cmds []tea.Cmd
+
+		var cmdTmp tea.Cmd
+		m.infoLogModel, cmdTmp = m.infoLogModel.Update(msg)
+		cmds = append(cmds, cmdTmp)
+
+		m.errorLogModel, cmdTmp = m.errorLogModel.Update(msg)
+		cmds = append(cmds, cmdTmp)
+
+		return m, tea.Batch(cmds...)
 	}
 
 	if m.initialized {
@@ -320,7 +333,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m mainModel) View() string {
 	if !m.initialized {
-		return "Initializing ...\n\n" + m.logModel.View()
+		return "Initializing ...\n\n" + m.infoLogModel.View()
 	}
 
 	s := fmt.Sprintf("Running test %s (%d/%d)", m.tests[m.currentTestIndex].runner.Name(), m.currentTestIndex+1, len(m.tests))
@@ -333,7 +346,15 @@ func (m mainModel) View() string {
 	s += m.tests[m.currentTestIndex].View()
 
 	s += "\n\n"
-	s += m.logModel.View()
+	s += m.infoLogModel.View()
+
+	if m.errorLogModel.HasContent() {
+		s += "\n\nErrors:\n"
+		s += m.errorLogModel.View()
+	}
+
+	s += "\n"
+
 	return s
 }
 

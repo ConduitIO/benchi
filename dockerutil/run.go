@@ -25,7 +25,7 @@ import (
 // RunInContainer executes a command in the specified container. The container
 // must be running and the command will be executed in the container's default
 // shell.
-func RunInContainer(ctx context.Context, container, command string) error {
+func RunInContainer(ctx context.Context, logger *slog.Logger, container, command string) error {
 	if command[len(command)-1] != '\n' {
 		command += "\n"
 	}
@@ -38,27 +38,27 @@ func RunInContainer(ctx context.Context, container, command string) error {
 		"sh",            // Run command through shell
 	)
 
-	return runDockerCmd(dockerCmd, container, command)
+	return runDockerCmd(logger, dockerCmd, container, command)
 }
 
 // RunInDockerNetwork executes a command in a temporary container connected to
 // the specified Docker network. The container will use the alpine image and
 // will be removed after execution.
-func RunInDockerNetwork(ctx context.Context, networkName, command string) error {
+func RunInDockerNetwork(ctx context.Context, logger *slog.Logger, image, networkName, command string) error {
 	// Build the docker run command
 	dockerCmd := exec.CommandContext(ctx, "docker",
 		"run",
 		"--rm",                   // Remove container after execution
 		"--interactive",          // Keep stdin open
 		"--network", networkName, // Connect to specified network
-		"alpine", // Use alpine as base image
-		"sh",     // Run command through shell
+		image, // Use provided image
+		"sh",  // Run command through shell
 	)
 
-	return runDockerCmd(dockerCmd, "[temporary]", command)
+	return runDockerCmd(logger, dockerCmd, "[temporary]", command)
 }
 
-func runDockerCmd(dockerCmd *exec.Cmd, container, stdin string) error {
+func runDockerCmd(logger *slog.Logger, dockerCmd *exec.Cmd, container, stdin string) error {
 	// Create pipes for stdin, stdout and stderr
 	stdinPipe, err := dockerCmd.StdinPipe()
 	if err != nil {
@@ -88,10 +88,10 @@ func runDockerCmd(dockerCmd *exec.Cmd, container, stdin string) error {
 	go func() {
 		scn := bufio.NewScanner(stdoutPipe)
 		for scn.Scan() {
-			slog.Info(scn.Text(), "container", container, "stream", "stdout")
+			logger.Info(scn.Text(), "container", container, "stream", "stdout")
 		}
 		if err := scn.Err(); err != nil {
-			slog.Error("stdout scan error", "container", container, "error", err)
+			logger.Error("stdout scan error", "container", container, "error", err)
 		}
 	}()
 
@@ -99,10 +99,10 @@ func runDockerCmd(dockerCmd *exec.Cmd, container, stdin string) error {
 	go func() {
 		scn := bufio.NewScanner(stderrPipe)
 		for scn.Scan() {
-			slog.Error(scn.Text(), "container", container, "stream", "stderr")
+			logger.Error(scn.Text(), "container", container, "stream", "stderr")
 		}
 		if err := scn.Err(); err != nil {
-			slog.Error("stderr scan error", "container", container, "error", err)
+			logger.Error("stderr scan error", "container", container, "error", err)
 		}
 	}()
 

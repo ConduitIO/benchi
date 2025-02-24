@@ -34,7 +34,10 @@ import (
 	"github.com/sourcegraph/conc/pool"
 )
 
-const NetworkName = "benchi"
+const (
+	NetworkName      = "benchi"
+	DefaultHookImage = "alpine:latest"
+)
 
 type TestRunners []*TestRunner
 
@@ -108,7 +111,7 @@ func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) TestRunners {
 
 				name:     t.Name,
 				duration: t.Duration,
-				steps:    t.Steps,
+				hooks:    t.Steps,
 
 				tool:         tool,
 				resultsDir:   filepath.Join(opt.ResultsDir, fmt.Sprintf("%s_%s_%s", opt.StartedAt.Format("20060102150405"), t.Name, tool)),
@@ -132,7 +135,7 @@ type TestRunner struct {
 
 	name     string
 	duration time.Duration
-	steps    config.TestSteps
+	hooks    config.TestHooks
 
 	tool         string // tool is the name of the tool to run the test with
 	resultsDir   string // resultsDir is the directory where the test results are stored
@@ -243,8 +246,8 @@ func (r *TestRunner) RunStep(ctx context.Context) error {
 
 // -- STEPS --------------------------------------------------------------------
 
-func (r *TestRunner) runPreInfrastructure(context.Context) (err error) {
-	_, lastLog := r.loggerForStep(r.step)
+func (r *TestRunner) runPreInfrastructure(ctx context.Context) (err error) {
+	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
 	if _, err := os.Stat(r.resultsDir); err == nil {
@@ -254,7 +257,7 @@ func (r *TestRunner) runPreInfrastructure(context.Context) (err error) {
 		return fmt.Errorf("failed to create output folder %q: %w", r.resultsDir, err)
 	}
 
-	return nil
+	return r.runHooks(ctx, logger, r.hooks.PreInfrastructure)
 }
 
 func (r *TestRunner) runInfrastructure(ctx context.Context) (err error) {
@@ -282,33 +285,19 @@ func (r *TestRunner) runPostInfrastructure(ctx context.Context) (err error) {
 	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
-	_ = logger
-
-	for _, step := range r.steps.PostInfrastructure {
-		slog.Info("Running command in container", "container", step.Container, "command", step.Run)
-		err := dockerutil.RunInContainer(ctx, step.Container, step.Run)
-		if err != nil {
-			return fmt.Errorf("failed to run command in container %q: %w", step.Container, err)
-		}
-	}
-
-	return nil
+	return r.runHooks(ctx, logger, r.hooks.PostInfrastructure)
 }
 
-func (r *TestRunner) runPreTool(context.Context) (err error) {
+func (r *TestRunner) runPreTool(ctx context.Context) (err error) {
 	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
-	_ = logger
-
-	return nil
+	return r.runHooks(ctx, logger, r.hooks.PreTool)
 }
 
 func (r *TestRunner) runTool(ctx context.Context) (err error) {
 	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
-
-	_ = logger
 
 	paths := r.collectDockerComposeFiles(r.tools)
 	if len(paths) == 0 {
@@ -327,22 +316,18 @@ func (r *TestRunner) runTool(ctx context.Context) (err error) {
 	return nil
 }
 
-func (r *TestRunner) runPostTool(context.Context) (err error) {
+func (r *TestRunner) runPostTool(ctx context.Context) (err error) {
 	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
-	_ = logger
-
-	return nil
+	return r.runHooks(ctx, logger, r.hooks.PostTool)
 }
 
-func (r *TestRunner) runPreTest(context.Context) (err error) {
+func (r *TestRunner) runPreTest(ctx context.Context) (err error) {
 	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
-	_ = logger
-
-	return nil
+	return r.runHooks(ctx, logger, r.hooks.PreTest)
 }
 
 func (r *TestRunner) runTest(ctx context.Context) (err error) {
@@ -373,29 +358,23 @@ func (r *TestRunner) runTest(ctx context.Context) (err error) {
 	return nil
 }
 
-func (r *TestRunner) runPostTest(context.Context) (err error) {
+func (r *TestRunner) runPostTest(ctx context.Context) (err error) {
 	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
-	_ = logger
-
-	return nil
+	return r.runHooks(ctx, logger, r.hooks.PostTest)
 }
 
-func (r *TestRunner) runPreCleanup(context.Context) (err error) {
+func (r *TestRunner) runPreCleanup(ctx context.Context) (err error) {
 	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
-	_ = logger
-
-	return nil
+	return r.runHooks(ctx, logger, r.hooks.PreCleanup)
 }
 
 func (r *TestRunner) runCleanup(ctx context.Context) (err error) {
-	logger, lastLog := r.loggerForStep(r.step)
+	_, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
-
-	_ = logger
 
 	var errs []error
 	for _, fn := range slices.Backward(r.cleanupFns) {
@@ -404,13 +383,11 @@ func (r *TestRunner) runCleanup(ctx context.Context) (err error) {
 	return errors.Join(errs...)
 }
 
-func (r *TestRunner) runPostCleanup(context.Context) (err error) {
+func (r *TestRunner) runPostCleanup(ctx context.Context) (err error) {
 	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
-	_ = logger
-
-	return nil
+	return r.runHooks(ctx, logger, r.hooks.PostCleanup)
 }
 
 // -- UTILS --------------------------------------------------------------------
@@ -537,11 +514,6 @@ func (r *TestRunner) dockerComposeUpWait(
 				}
 				logger.Debug("Inspected container", "container", c, "response", resp, "state", *resp.State)
 
-				/*
-					state="{Status:running Running:true Paused:false Restarting:false OOMKilled:false Dead:false Pid:3718 ExitCode:0 Error: StartedAt:2025-02-21T14:13:07.866660387Z FinishedAt:0001-01-01T00:00:00Z Health:0x1400041a1b0}"
-					state="{Status:exited Running:false Paused:false Restarting:false OOMKilled:false Dead:false Pid:0 ExitCode:1 Error: StartedAt:2025-02-21T14:13:07.866660387Z FinishedAt:2025-02-21T14:13:50.767663503Z Health:0x14000604990}"
-				*/
-
 				switch {
 				case resp.State.Dead || (!resp.State.Running && resp.State.ExitCode != 0):
 					return fmt.Errorf("container %s is dead (exit code: %d, error: %q)", resp.Name, resp.State.ExitCode, resp.State.Error)
@@ -567,13 +539,41 @@ func (r *TestRunner) dockerComposeUpWait(
 		})
 	}
 
-	// TODO wait timeout? context deadline?
+	// TODO wait timeout? context deadline? Arguably, this should be done in
+	//  the docker compose file. But maybe a long timeout would be good, to be safe.
 	err = wg.Wait()
 	if err != nil {
 		return fmt.Errorf("failed to start containers: %w", err)
 	}
 
 	return nil
+}
+
+func (r *TestRunner) runHooks(ctx context.Context, logger *slog.Logger, hooks []config.TestHook) error {
+	logger.Debug("Running hooks", "count", len(hooks))
+	for _, hook := range hooks {
+		err := r.runHook(ctx, logger, hook)
+		if err != nil {
+			return fmt.Errorf("failed to run hook %s:%s: %w", r.step, hook.Name, err)
+		}
+	}
+	return nil
+}
+
+func (r *TestRunner) runHook(ctx context.Context, logger *slog.Logger, hook config.TestHook) error {
+	logger = logger.With("hook", hook.Name)
+
+	if hook.Container != "" {
+		slog.Info("Running command in existing container", "container", hook.Container, "command", hook.Run)
+		return dockerutil.RunInContainer(ctx, logger, hook.Container, hook.Run)
+	}
+	image := hook.Image
+	if hook.Image == "" {
+		image = DefaultHookImage
+	}
+
+	logger.Info("Running command in temporary container", "image", image, "command", hook.Run)
+	return dockerutil.RunInDockerNetwork(ctx, logger, image, NetworkName, hook.Run)
 }
 
 func ptr[T any](v T) *T {

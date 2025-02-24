@@ -18,6 +18,7 @@ import (
 	"bufio"
 	"io"
 	"strings"
+	"sync/atomic"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -25,21 +26,27 @@ import (
 // LogModel displays a log stream. It reads lines from an io.Reader and displays
 // them in a scrolling view.
 type LogModel struct {
+	id          int32
 	in          *bufio.Reader
 	displaySize int
 	lines       []string
 }
 
+// logModelID serves as a unique id generator for LogModel.
+var logModelID atomic.Int32
+
 type LogModelMsg struct {
+	id   int32
 	line string
 }
 
 // NewLogModel is the constructor for LogModel.
 func NewLogModel(in io.Reader, displaySize int) LogModel {
 	return LogModel{
+		id:          logModelID.Add(1),
 		in:          bufio.NewReader(in),
 		displaySize: displaySize,
-		lines:       make([]string, displaySize),
+		lines:       make([]string, 0, displaySize),
 	}
 }
 
@@ -48,16 +55,26 @@ func (m LogModel) Init() tea.Cmd {
 }
 
 func (m LogModel) Update(msg tea.Msg) (LogModel, tea.Cmd) {
-	switch msg := msg.(type) {
-	case LogModelMsg:
-		m.lines = append(m.lines[1:], msg.line)
-		return m, m.readLineCmd()
+	logMsg, ok := msg.(LogModelMsg)
+	if !ok || logMsg.id != m.id {
+		return m, nil
 	}
-	return m, nil
+
+	tmp := m.lines
+	if m.displaySize > 0 && len(tmp) == m.displaySize {
+		tmp = tmp[1:]
+	}
+
+	m.lines = append(tmp, logMsg.line)
+	return m, m.readLineCmd()
 }
 
 func (m LogModel) View() string {
 	return strings.Join(m.lines, "\n")
+}
+
+func (m LogModel) HasContent() bool {
+	return len(m.lines) > 0
 }
 
 func (m LogModel) readLineCmd() tea.Cmd {
@@ -70,6 +87,6 @@ func (m LogModel) readLineCmd() tea.Cmd {
 			return err
 		}
 		line = strings.TrimSpace(line)
-		return LogModelMsg{line: line}
+		return LogModelMsg{id: m.id, line: line}
 	}
 }
