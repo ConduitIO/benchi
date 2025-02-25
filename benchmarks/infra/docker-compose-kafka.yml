@@ -18,6 +18,8 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
+    ports:
+      - "7071:7071"
     volumes:
       - ./kafka/jmx:/opt/kafka/jmx  # Mount JMX files
     environment:

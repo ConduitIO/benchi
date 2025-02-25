@@ -23,7 +23,7 @@ type Config struct {
 	// Tools defines the tools configuration.
 	Tools Tools `yaml:"tools"`
 	// Metrics defines the metrics collectors configuration.
-	Metrics []MetricsCollector `yaml:"metrics"`
+	Metrics MetricsCollectors `yaml:"metrics"`
 	// Tests defines the test configurations.
 	Tests []Test `yaml:"tests"`
 }
@@ -42,15 +42,16 @@ type Infrastructure map[string]ServiceConfig
 // Tools represents a map of service configurations for the tools.
 type Tools map[string]ServiceConfig
 
+// MetricsCollectors represents a map of metrics collector configurations.
+type MetricsCollectors map[string]MetricsCollector
+
 // MetricsCollector represents the configuration for a metrics collector.
 type MetricsCollector struct {
 	// Collector is the name of the metrics collector.
 	Collector string `yaml:"collector"`
-	// Interval is the interval at which metrics are collected.
-	Interval string `yaml:"interval"`
 	// Settings defines additional settings for the metrics collector. The
 	// specific settings depend on the collector.
-	Settings map[string]string `yaml:"settings"`
+	Settings map[string]any `yaml:"settings"`
 }
 
 // Test represents the configuration for a test.
@@ -64,7 +65,7 @@ type Test struct {
 	Tools map[string]ServiceConfig `yaml:"tools"`
 	// Metrics defines the metrics collectors configuration for the test. This
 	// configuration will be merged with the global metrics configuration.
-	Metrics []MetricsCollector `yaml:"metrics"`
+	Metrics MetricsCollectors `yaml:"metrics"`
 
 	// Name is the name of the test.
 	Name string `yaml:"name"`

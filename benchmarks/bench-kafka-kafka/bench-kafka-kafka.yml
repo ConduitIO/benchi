@@ -9,28 +9,15 @@ tools:
     docker-compose: ../tools/docker-compose-conduit.yml
 
 metrics:
-  - collector: kafka
-    interval: 1s
+  kafka:
+    collector: prometheus
     settings:
-      url: kafka:8081/health
-      foo: bar
-
-  - collector: conduit
-    interval: 1s
-    settings:
-      url: conduit:8080/metrics
-      bar: gah
-
-  - collector: docker-stats
-    interval: 1s
-    settings:
-      url: conduit:8080/metrics
-      bar: gah
-
-  - collector: kafka-connect
-    interval: 1s
-    settings:
-      qux: baz
+      url: localhost:7071/metrics
+      scrape-interval: 1s
+      queries:
+        - name: kafka_broker
+          query: 'kafka_server_BrokerTopicMetrics_MessagesInPerSec_Count'
+          interval: 1s
 
 tests:
   - name: kafka-to-kafka

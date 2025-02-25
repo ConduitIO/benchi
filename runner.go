@@ -30,8 +30,11 @@ import (
 
 	"github.com/conduitio/benchi/config"
 	"github.com/conduitio/benchi/dockerutil"
+	"github.com/conduitio/benchi/metrics"
 	"github.com/docker/docker/client"
 	"github.com/sourcegraph/conc/pool"
+
+	_ "github.com/conduitio/benchi/metrics/prometheus"
 )
 
 const (
@@ -72,9 +75,23 @@ func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) TestRunners {
 			infra = append(infra, v)
 		}
 
-		metrics := make([]config.MetricsCollector, 0, len(cfg.Metrics)+len(t.Metrics))
-		metrics = append(metrics, cfg.Metrics...)
-		metrics = append(metrics, t.Metrics...)
+		collectors := make([]metrics.Collector, 0, len(cfg.Metrics)+len(t.Metrics))
+		for name, v := range cfg.Metrics {
+			// TODO create collector in test, not here, the logger is wrong
+			collector, err := metrics.NewCollector(slog.Default(), name, v.Collector)
+			if err != nil {
+				// TODO return error when done in test
+				slog.Error("Failed to create collector", "name", name, "error", err)
+				continue
+			}
+			err = collector.Configure(v.Settings)
+			if err != nil {
+				// TODO return error when done in test
+				slog.Error("Failed to configure collector", "name", name, "error", err)
+				continue
+			}
+			collectors = append(collectors, collector)
+		}
 
 		toolNames := slices.Collect(maps.Keys(cfg.Tools))
 		for k := range t.Tools {
@@ -107,7 +124,7 @@ func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) TestRunners {
 			runs = append(runs, &TestRunner{
 				infrastructure: infra,
 				tools:          tools,
-				metrics:        metrics,
+				collectors:     collectors,
 
 				name:     t.Name,
 				duration: t.Duration,
@@ -131,7 +148,7 @@ type TestRunner struct {
 
 	infrastructure []config.ServiceConfig
 	tools          []config.ServiceConfig
-	metrics        []config.MetricsCollector
+	collectors     []metrics.Collector
 
 	name     string
 	duration time.Duration
@@ -256,6 +273,8 @@ func (r *TestRunner) runPreInfrastructure(ctx context.Context) (err error) {
 	if err := os.MkdirAll(r.resultsDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create output folder %q: %w", r.resultsDir, err)
 	}
+
+	// TODO pull all images
 
 	return r.runHooks(ctx, logger, r.hooks.PreInfrastructure)
 }
@@ -504,6 +523,12 @@ func (r *TestRunner) dockerComposeUpWait(
 		return fmt.Errorf("failed to start containers: %w", *err)
 	}
 
+	// We create a context deadline of 5 minutes here, since we expect any
+	// service to start
+	//  the docker compose file. But maybe a long timeout would be good, to be safe.
+	ctx, cancel := context.WithTimeout(ctx, time.Minute*5)
+	defer cancel()
+
 	wg := pool.New().WithErrors()
 	for _, c := range containers {
 		wg.Go(func() error {
@@ -539,8 +564,6 @@ func (r *TestRunner) dockerComposeUpWait(
 		})
 	}
 
-	// TODO wait timeout? context deadline? Arguably, this should be done in
-	//  the docker compose file. But maybe a long timeout would be good, to be safe.
 	err = wg.Wait()
 	if err != nil {
 		return fmt.Errorf("failed to start containers: %w", err)
