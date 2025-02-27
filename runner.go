@@ -17,6 +17,7 @@ package benchi
 import (
 	"bytes"
 	"context"
+	"encoding/csv"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -407,11 +408,10 @@ func (r *TestRunner) runPostTest(ctx context.Context) (err error) {
 
 	var errs []error
 	for _, collector := range r.collectors {
-		logger.Info("Flushing collector", "name", collector.Name(), "type", collector.Type())
-		err := collector.Flush(ctx, r.resultsDir)
+		err := r.exportMetrics(logger, collector)
 		if err != nil {
-			logger.Error("Failed to flush collector", "name", collector.Name(), "error", err)
-			errs = append(errs, fmt.Errorf("failed to flush collector %s: %w", collector.Name(), err))
+			logger.Error("Failed to export collector metrics", "name", collector.Name(), "error", err)
+			errs = append(errs, fmt.Errorf("failed to export collector metrics %s: %w", collector.Name(), err))
 		}
 	}
 
@@ -608,6 +608,47 @@ func (r *TestRunner) dockerComposeUpWait(
 	}
 
 	return nil
+}
+
+func (r *TestRunner) exportMetrics(logger *slog.Logger, collector metrics.Collector) error {
+	logger.Info("Exporting metrics", "collector", collector.Name())
+	for name, mm := range collector.Metrics() {
+		logger.Debug("Collected metric", "name", name, "sample-count", len(mm))
+
+		// TODO sanitize name
+		filename := fmt.Sprintf("%s-%s.csv", collector.Name(), name)
+		err := r.exportCSV(
+			filepath.Join(r.resultsDir, filename),
+			[]string{"time", "value"},
+			mm,
+		)
+
+		if err != nil {
+			return fmt.Errorf("failed to export metrics for %s.%s: %w", collector.Name(), name, err)
+		}
+	}
+	return nil
+}
+
+func (r *TestRunner) exportCSV(path string, header []string, values []metrics.Metric) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("error creating file: %w", err)
+	}
+	defer f.Close()
+
+	writer := csv.NewWriter(f)
+	err = writer.Write(header)
+	if err != nil {
+		f.Close()
+		return fmt.Errorf("error writing header: %w", err)
+	}
+
+	records := make([][]string, len(values))
+	for i, v := range values {
+		records[i] = []string{v.At.Format(time.RFC3339), fmt.Sprintf("%f", v.Value)}
+	}
+	return writer.WriteAll(records)
 }
 
 func (r *TestRunner) runHooks(ctx context.Context, logger *slog.Logger, hooks []config.TestHook) error {

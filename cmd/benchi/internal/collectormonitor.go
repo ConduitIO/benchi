@@ -19,6 +19,7 @@ import (
 	"math"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/conduitio/benchi/metrics"
@@ -33,57 +34,57 @@ type CollectorMonitorModel struct {
 	samples map[string][]float64
 	// numSamples is the number of samples to keep.
 	numSamples int
+	// interval is the time interval to refresh the model.
+	interval time.Duration
 }
 
 // collectorMonitorModelID serves as a unique id generator for CollectorMonitorModel.
 var collectorMonitorModelID atomic.Int32
 
 type CollectorMonitorModelMsg struct {
-	id     int32
-	metric metrics.Metric
-	done   bool
+	id      int32
+	samples map[string][]float64
 }
 
 // NewCollectorMonitorModel creates a new CollectorMonitorModel.
 func NewCollectorMonitorModel(collector metrics.Collector, numSamples int) CollectorMonitorModel {
 	return CollectorMonitorModel{
-		id:         containerMonitorModelID.Add(1),
+		id:         collectorMonitorModelID.Add(1),
 		collector:  collector,
 		samples:    make(map[string][]float64),
 		numSamples: numSamples,
+		interval:   time.Second,
 	}
 }
 
 func (m CollectorMonitorModel) Init() tea.Cmd {
-	return m.nextMetricCmd()
+	return m.scheduleRefreshCmd()
 }
 
-func (m CollectorMonitorModel) nextMetricCmd() tea.Cmd {
-	return func() tea.Msg {
-		metric, ok := <-m.collector.Out()
-		if !ok {
-			return CollectorMonitorModelMsg{id: m.id, done: true}
+func (m CollectorMonitorModel) scheduleRefreshCmd() tea.Cmd {
+	return tea.Tick(m.interval, func(time.Time) tea.Msg {
+		mm := m.collector.Metrics()
+		samples := make(map[string][]float64)
+		for name, metric := range mm {
+			size := min(m.numSamples, len(metric))
+			samples[name] = make([]float64, size)
+			for i, m := range metric[len(metric)-size:] {
+				samples[name][i] = m.Value
+			}
 		}
-		return CollectorMonitorModelMsg{id: m.id, metric: metric}
-	}
+
+		return CollectorMonitorModelMsg{id: m.id, samples: samples}
+	})
 }
 
 func (m CollectorMonitorModel) Update(msg tea.Msg) (CollectorMonitorModel, tea.Cmd) {
 	collectorMsg, ok := msg.(CollectorMonitorModelMsg)
-	if !ok || collectorMsg.id != m.id || collectorMsg.done {
+	if !ok || collectorMsg.id != m.id {
 		return m, nil
 	}
 
-	samples, ok := m.samples[collectorMsg.metric.Name]
-	if !ok {
-		samples = make([]float64, 0, m.numSamples)
-	}
-	samples = append(samples, collectorMsg.metric.Value)
-	if len(samples) > m.numSamples {
-		samples = samples[1:]
-	}
-	m.samples[collectorMsg.metric.Name] = samples
-	return m, m.nextMetricCmd()
+	m.samples = collectorMsg.samples
+	return m, m.scheduleRefreshCmd()
 }
 
 // View renders the spark line.

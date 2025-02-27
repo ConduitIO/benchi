@@ -53,7 +53,6 @@ type Collector struct {
 
 	mu      sync.Mutex
 	results map[string]promql.Matrix
-	out     chan metrics.Metric
 }
 
 func NewCollector(logger *slog.Logger, name string) *Collector {
@@ -62,7 +61,6 @@ func NewCollector(logger *slog.Logger, name string) *Collector {
 		name:   name,
 
 		results: make(map[string]promql.Matrix),
-		out:     make(chan metrics.Metric, 10),
 	}
 }
 
@@ -74,22 +72,15 @@ func (p *Collector) Type() string {
 	return Type
 }
 
-func (p *Collector) Out() <-chan metrics.Metric {
-	return p.out
-}
+func (p *Collector) Metrics() map[string][]metrics.Metric {
+	out := make(map[string][]metrics.Metric)
 
-func (p *Collector) View() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
-	s := ""
-	for name, result := range p.results {
-		for _, series := range result {
-			s += fmt.Sprintf("- %s: %.2f\n", name, series.Floats[len(series.Floats)-1].F)
-		}
+	for name, m := range p.results {
+		out[name] = p.promqlMatrixToMetrics(m)
 	}
-
-	return s
+	return out
 }
 
 func (p *Collector) Flush(_ context.Context, dir string) error {
@@ -237,8 +228,6 @@ func (p *Collector) Configure(settings map[string]any) (err error) {
 }
 
 func (p *Collector) Run(ctx context.Context) error {
-	defer close(p.out)
-
 	p.runStart = time.Now()
 
 	// Ignore parsing error, we validated it in Configure.
@@ -341,14 +330,17 @@ func (p *Collector) execQuery(ctx context.Context, queryCfg QueryConfig) error {
 	defer p.mu.Unlock()
 	p.results[queryCfg.Name] = m
 
-	series := m[0]
-	lastSample := series.Floats[len(series.Floats)-1]
-
-	p.out <- metrics.Metric{
-		Name:  queryCfg.Name,
-		At:    time.UnixMilli(lastSample.T),
-		Value: lastSample.F,
-	}
-
 	return nil
+}
+
+func (p *Collector) promqlMatrixToMetrics(m promql.Matrix) []metrics.Metric {
+	series := m[0] // TODO add support for multiple series
+	out := make([]metrics.Metric, len(series.Floats))
+	for i, sample := range series.Floats {
+		out[i] = metrics.Metric{
+			At:    time.UnixMilli(sample.T),
+			Value: sample.F,
+		}
+	}
+	return out
 }

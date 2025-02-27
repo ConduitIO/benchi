@@ -28,20 +28,16 @@ type Collector interface {
 	Type() string
 	// Configure sets up the collector with the provided settings.
 	Configure(settings map[string]any) error
-	// Out returns a channel that will receive metrics as they are collected.
-	Out() <-chan Metric
-
 	// Run continuously runs the collection process until the context is
 	// cancelled. The function should block until the context is cancelled, an
 	// error occurs, or the Stop function is called.
 	Run(ctx context.Context) error
-	// Flush should flush all collected metrics to the specified directory. This
-	// is called after the collector has been stopped.
-	Flush(ctx context.Context, dir string) error
+	// Metrics returns the collected metrics. If the collector is collecting
+	// multiple metrics, the key should be the name of the metric.
+	Metrics() map[string][]Metric
 }
 
 type Metric struct {
-	Name  string
 	At    time.Time
 	Value float64
 }
