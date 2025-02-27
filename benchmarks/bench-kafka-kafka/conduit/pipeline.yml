@@ -3,16 +3,18 @@ pipelines:
   - id: kafka-to-kafka
     status: running
     connectors:
-      - id: bench-in
+      - id: benchi-in
         type: source
         plugin: builtin:kafka
         settings:
           servers: "benchi-kafka:9092"
-          topics: "bench-in"
+          topics: "benchi-in"
+          readFromBeginning: "true"
+          groupID: "benchi"
 
-      - id: bench-out
+      - id: benchi-out
         type: destination
         plugin: builtin:kafka
         settings:
           servers: "benchi-kafka:9092"
-          topic: 'bench-out'
+          topic: 'benchi-out'

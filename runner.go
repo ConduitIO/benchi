@@ -202,6 +202,10 @@ func (r *TestRunner) Tools() []config.ServiceConfig {
 	return r.tools
 }
 
+func (r *TestRunner) Collectors() []metrics.Collector {
+	return r.collectors
+}
+
 // Run runs the test to completion.
 func (r *TestRunner) Run(ctx context.Context) error {
 	var errs []error
@@ -353,33 +357,67 @@ func (r *TestRunner) runTest(ctx context.Context) (err error) {
 	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
-	const timeBetweenLogs = 5 * time.Second
-
 	endTestAt := time.Now().Add(r.duration + 500*time.Millisecond) // Add 500ms to account for time drift and nicer log output
-	testCompleted := time.After(r.duration)
-	logTicker := time.NewTicker(timeBetweenLogs)
-	defer logTicker.Stop()
+	testCtx, cancel := context.WithDeadline(ctx, endTestAt)
+	defer cancel()
+
+	wg := pool.New().WithErrors().WithContext(testCtx).WithCancelOnError()
+	for _, collector := range r.collectors {
+		logger.Info("Running collector", "name", collector.Name(), "type", collector.Type())
+		wg.Go(func(ctx context.Context) error {
+			err := collector.Run(ctx)
+			if err != nil {
+				return fmt.Errorf("collector %s failed: %w", collector.Name(), err)
+			}
+			return nil
+		})
+	}
+	wg.Go(func(ctx context.Context) error {
+		const timeBetweenLogs = 5 * time.Second
+		logTicker := time.NewTicker(timeBetweenLogs)
+		defer logTicker.Stop()
+
+		for {
+			logger.Info("Test in progress", "time-left", endTestAt.Sub(time.Now()).Truncate(time.Second))
+			select {
+			case <-ctx.Done():
+				if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+					return ctx.Err()
+				}
+				return nil
+			case <-logTicker.C:
+				continue
+			}
+		}
+	})
 
 	// TODO during
 
-	for {
-		logger.Info("Test in progress", "time-left", endTestAt.Sub(time.Now()).Truncate(time.Second))
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-logTicker.C:
-			continue
-		case <-testCompleted:
-		}
-		break
+	err = wg.Wait()
+	if errors.Is(err, context.DeadlineExceeded) {
+		err = nil // not an error
 	}
 
-	return nil
+	return err
 }
 
 func (r *TestRunner) runPostTest(ctx context.Context) (err error) {
 	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
+
+	var errs []error
+	for _, collector := range r.collectors {
+		logger.Info("Flushing collector", "name", collector.Name(), "type", collector.Type())
+		err := collector.Flush(ctx, r.resultsDir)
+		if err != nil {
+			logger.Error("Failed to flush collector", "name", collector.Name(), "error", err)
+			errs = append(errs, fmt.Errorf("failed to flush collector %s: %w", collector.Name(), err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
 
 	return r.runHooks(ctx, logger, r.hooks.PostTest)
 }

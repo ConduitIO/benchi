@@ -9,19 +9,19 @@ tools:
     docker-compose: ../tools/docker-compose-conduit.yml
 
 metrics:
-  kafka:
+  conduit:
     collector: prometheus
     settings:
-      url: localhost:7071/metrics
+      url: http://localhost:8080/metrics
       scrape-interval: 1s
       queries:
-        - name: kafka_broker
-          query: 'kafka_server_BrokerTopicMetrics_MessagesInPerSec_Count'
+        - name: msg-rate-per-second
+          query: 'rate(conduit_pipeline_execution_duration_seconds_count[2s])'
           interval: 1s
 
 tests:
   - name: kafka-to-kafka
-    duration: 30s
+    duration: 60s
 
     tools:
       conduit:
@@ -33,8 +33,18 @@ tests:
         - name: "Create topics"
           container: "benchi-kafka"
           run: |
-            /opt/kafka/bin/kafka-topics.sh --create --topic bench-in --partitions 1 --replication-factor 1 --bootstrap-server benchi-kafka:9092
-            /opt/kafka/bin/kafka-topics.sh --create --topic bench-out --partitions 1 --replication-factor 1 --bootstrap-server benchi-kafka:9092
+            /opt/kafka/bin/kafka-topics.sh --create --topic benchi-in --partitions 1 --replication-factor 1 --bootstrap-server benchi-kafka:9092
+            /opt/kafka/bin/kafka-topics.sh --create --topic benchi-out --partitions 1 --replication-factor 1 --bootstrap-server benchi-kafka:9092
+        - name: "Create test data"
+          container: "benchi-kafka"
+          run: |
+            /opt/kafka/bin/kafka-producer-perf-test.sh \
+              --throughput 1000000 \
+              --record-size 1000 \
+              --num-records 1000000 \
+              --topic benchi-in \
+              --producer-props linger.ms=0 batch.size=16384 bootstrap.servers=benchi-kafka:9092 \
+              --print-metrics
       pre-tool:
       post-tool:
       pre-test:

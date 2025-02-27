@@ -16,7 +16,6 @@ package prometheus
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -34,8 +33,7 @@ import (
 	"github.com/prometheus/prometheus/promql"
 	"github.com/prometheus/prometheus/scrape"
 	"github.com/prometheus/prometheus/tsdb"
-	"golang.org/x/sync/errgroup"
-	"golang.org/x/time/rate"
+	"github.com/sourcegraph/conc/pool"
 )
 
 const Type = "prometheus"
@@ -48,20 +46,23 @@ type Collector struct {
 
 	cfg      Config
 	runStart time.Time
-	runEnd   time.Time
 
 	tsdb          *tsdb.DB
 	scrapeManager *scrape.Manager
 	promqlEngine  *promql.Engine
 
 	mu      sync.Mutex
-	results promql.Matrix
+	results map[string]promql.Matrix
+	out     chan metrics.Metric
 }
 
 func NewCollector(logger *slog.Logger, name string) *Collector {
 	return &Collector{
 		logger: logger,
 		name:   name,
+
+		results: make(map[string]promql.Matrix),
+		out:     make(chan metrics.Metric, 10),
 	}
 }
 
@@ -73,14 +74,22 @@ func (p *Collector) Type() string {
 	return Type
 }
 
-func (p *Collector) Stop(context.Context) error {
-	var errs []error
+func (p *Collector) Out() <-chan metrics.Metric {
+	return p.out
+}
 
-	p.scrapeManager.Stop()
-	errs = append(errs, p.promqlEngine.Close())
-	errs = append(errs, p.tsdb.Close())
+func (p *Collector) View() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
-	return errors.Join(errs...)
+	s := ""
+	for name, result := range p.results {
+		for _, series := range result {
+			s += fmt.Sprintf("- %s: %.2f\n", name, series.Floats[len(series.Floats)-1].F)
+		}
+	}
+
+	return s
 }
 
 func (p *Collector) Flush(_ context.Context, dir string) error {
@@ -163,15 +172,20 @@ func (p *Collector) Configure(settings map[string]any) (err error) {
 		return fmt.Errorf("error creating scrape manager: %w", err)
 	}
 
-	promCfg, err := config.Load(`
-global:
-  scrape_interval: 1s
-scrape_configs:
-  - job_name: benchi
-`, p.logger)
+	promCfg, err := config.Load("", p.logger)
 	if err != nil {
 		return fmt.Errorf("error loading config: %w", err)
 	}
+
+	promCfg.GlobalConfig.ScrapeInterval = model.Duration(p.cfg.ScrapeInterval)
+	promCfg.GlobalConfig.ScrapeTimeout = model.Duration(p.cfg.ScrapeInterval)
+
+	scrapeCfg := config.DefaultScrapeConfig
+	scrapeCfg.JobName = "benchi"
+	scrapeCfg.ScrapeInterval = promCfg.GlobalConfig.ScrapeInterval
+	scrapeCfg.ScrapeTimeout = promCfg.GlobalConfig.ScrapeTimeout
+
+	promCfg.ScrapeConfigs = append(promCfg.ScrapeConfigs, &scrapeCfg)
 
 	err = scrapeManager.ApplyConfig(promCfg)
 	if err != nil {
@@ -182,7 +196,7 @@ scrape_configs:
 		Logger:             p.logger.With("collector.prometheus", "query engine"),
 		Reg:                registry,
 		MaxSamples:         50000000,
-		Timeout:            p.cfg.ScrapeInterval,
+		Timeout:            p.cfg.ScrapeInterval*5 + time.Second,
 		ActiveQueryTracker: NewSequentialQueryTracker(),
 		NoStepSubqueryIntervalFn: func(_ int64) int64 {
 			return int64(time.Duration(promCfg.GlobalConfig.EvaluationInterval) / time.Millisecond)
@@ -223,10 +237,9 @@ scrape_configs:
 }
 
 func (p *Collector) Run(ctx context.Context) error {
+	defer close(p.out)
+
 	p.runStart = time.Now()
-	defer func() {
-		p.runEnd = time.Now()
-	}()
 
 	// Ignore parsing error, we validated it in Configure.
 	targetURL, _ := p.cfg.parseURL()
@@ -248,52 +261,57 @@ func (p *Collector) Run(ctx context.Context) error {
 		},
 	}
 
-	group, ctx := errgroup.WithContext(ctx)
-	group.Go(func() error {
+	wg := pool.New().WithErrors().WithContext(ctx).WithCancelOnError()
+	wg.Go(func(context.Context) error {
 		return p.scrapeManager.Run(ch)
 	})
-	group.Go(func() error {
+	wg.Go(func(ctx context.Context) error {
 		<-ctx.Done()
 		p.scrapeManager.Stop()
-		if err := p.tsdb.Close(); err != nil {
-			return fmt.Errorf("error closing storage: %w", err)
-		}
 		return nil
 	})
-	group.Go(func() error {
-		rateLimit := rate.NewLimiter(rate.Every(p.cfg.ScrapeInterval), 1)
+	wg.Go(func(ctx context.Context) error {
+		ticker := time.NewTicker(p.cfg.ScrapeInterval)
+		defer ticker.Stop()
 		for {
-			err := rateLimit.Wait(ctx)
-			if err != nil {
-				return err
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-ticker.C:
 			}
-			err = p.execQuery(ctx)
+
+			// TODO loop over all queries
+			err := p.execQuery(ctx, p.cfg.Queries[0])
 			if err != nil {
 				return fmt.Errorf("error executing prometheus query: %w", err)
 			}
 		}
 	})
 
-	return group.Wait()
+	err := wg.Wait()
+
+	if err := p.promqlEngine.Close(); err != nil {
+		p.logger.Error("Failed to close Prometheus query engine", "error", err)
+	}
+	if err := p.tsdb.Close(); err != nil {
+		p.logger.Error("Failed to close Prometheus storage", "error", err)
+	}
+
+	return err
 }
 
 // execQuery executes the query and sends the result to the output channel.
 // It returns the query object so that it can be closed when the next query is
 // executed.
-func (p *Collector) execQuery(ctx context.Context) error {
-	end := p.runEnd
-	if end.IsZero() {
-		end = time.Now()
-	}
-	// TODO maybe do an instant query instead of a range query
+func (p *Collector) execQuery(ctx context.Context, queryCfg QueryConfig) error {
 	q, err := p.promqlEngine.NewRangeQuery(
 		ctx,
 		p.tsdb,
 		promql.NewPrometheusQueryOpts(false, 0),
-		p.cfg.Queries[0].QueryString,
+		queryCfg.QueryString,
 		p.runStart,
-		end,
-		p.cfg.Queries[0].Interval,
+		time.Now(),
+		queryCfg.Interval,
 	)
 	if err != nil {
 		return fmt.Errorf("invalid query: %w", err)
@@ -308,12 +326,29 @@ func (p *Collector) execQuery(ctx context.Context) error {
 		return fmt.Errorf("error fetching result matrix: %w", r.Err)
 	}
 	if len(m) == 0 {
+		p.logger.Debug("No data returned from query")
 		return nil
 	}
+	if len(m) > 1 {
+		// TODO add support for multiple series
+		p.logger.Warn("Query returned multiple series, only first will be used", "series-count", len(m))
+		m = m[:1]
+	}
+
+	p.logger.Debug("Query returned data", "series-count", len(m))
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.results = m
+	p.results[queryCfg.Name] = m
+
+	series := m[0]
+	lastSample := series.Floats[len(series.Floats)-1]
+
+	p.out <- metrics.Metric{
+		Name:  queryCfg.Name,
+		At:    time.UnixMilli(lastSample.T),
+		Value: lastSample.F,
+	}
 
 	return nil
 }

@@ -32,6 +32,7 @@ import (
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/timer"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/conduitio/benchi"
 	"github.com/conduitio/benchi/cmd/benchi/internal"
 	"github.com/conduitio/benchi/config"
@@ -368,6 +369,7 @@ type testModel struct {
 
 	infrastructureModel internal.ContainerMonitorModel
 	toolsModel          internal.ContainerMonitorModel
+	collectorModels     []internal.CollectorMonitorModel
 
 	progress internal.ProgressTimerModel
 }
@@ -397,6 +399,11 @@ func newTestModel(ctx context.Context, cleanupCtx context.Context, client client
 		return testModel{}, err
 	}
 
+	collectorModels := make([]internal.CollectorMonitorModel, 0, len(runner.Collectors()))
+	for _, c := range runner.Collectors() {
+		collectorModels = append(collectorModels, internal.NewCollectorMonitorModel(c, 15))
+	}
+
 	return testModel{
 		ctx:        ctx,
 		cleanupCtx: cleanupCtx,
@@ -407,6 +414,7 @@ func newTestModel(ctx context.Context, cleanupCtx context.Context, client client
 		// running during cleanup.
 		infrastructureModel: internal.NewContainerMonitorModel(cleanupCtx, client, infraContainers),
 		toolsModel:          internal.NewContainerMonitorModel(cleanupCtx, client, toolContainers),
+		collectorModels:     collectorModels,
 	}, nil
 }
 
@@ -459,11 +467,17 @@ func ptr[T any](v T) *T {
 }
 
 func (m testModel) Init() tea.Cmd {
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		m.infrastructureModel.Init(),
 		m.toolsModel.Init(),
 		m.stepCmd(m.ctx),
-	)
+	}
+
+	for _, cm := range m.collectorModels {
+		cmds = append(cmds, cm.Init())
+	}
+
+	return tea.Batch(cmds...)
 }
 
 func (m testModel) stepCmd(ctx context.Context) tea.Cmd {
@@ -528,6 +542,17 @@ func (m testModel) Update(msg tea.Msg) (testModel, tea.Cmd) {
 		cmds = append(cmds, cmdTmp)
 
 		return m, tea.Batch(cmds...)
+
+	case internal.CollectorMonitorModelMsg:
+		var cmds []tea.Cmd
+
+		var cmdTmp tea.Cmd
+		for i, cm := range m.collectorModels {
+			m.collectorModels[i], cmdTmp = cm.Update(msg)
+			cmds = append(cmds, cmdTmp)
+		}
+
+		return m, tea.Batch(cmds...)
 	}
 
 	return m, nil
@@ -544,5 +569,16 @@ func (m testModel) View() string {
 	s += "\n"
 	s += "Tools:\n"
 	s += m.toolsModel.View()
+
+	if m.currentStep == benchi.StepTest {
+		s += "\n"
+		s += "Metrics:\n"
+
+		indentStyle := lipgloss.NewStyle().PaddingLeft(2)
+		for _, c := range m.collectorModels {
+			s += indentStyle.Render(c.View())
+		}
+	}
+
 	return s
 }
