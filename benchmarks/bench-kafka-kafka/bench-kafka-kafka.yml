@@ -10,14 +10,9 @@ tools:
 
 metrics:
   conduit:
-    collector: prometheus
+    collector: conduit
     settings:
       url: http://localhost:8080/metrics
-      scrape-interval: 1s
-      queries:
-        - name: msg-rate-per-second
-          query: 'rate(conduit_pipeline_execution_duration_seconds_count[2s])'
-          interval: 1s
 
 tests:
   - name: kafka-to-kafka

@@ -19,12 +19,10 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/conduitio/benchi/metrics"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/mitchellh/mapstructure"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
@@ -81,21 +79,6 @@ func (p *Collector) Metrics() map[string][]metrics.Metric {
 		out[name] = p.promqlMatrixToMetrics(m)
 	}
 	return out
-}
-
-func (p *Collector) Flush(_ context.Context, dir string) error {
-	f, err := os.Create(filepath.Join(dir, p.Name()+"-prometheus.csv"))
-	if err != nil {
-		return fmt.Errorf("error creating file: %w", err)
-	}
-	defer f.Close()
-
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	// TODO: This is a temporary solution to dump the results to a file.
-	spew.Fdump(f, p.results)
-	return nil
 }
 
 func (p *Collector) Configure(settings map[string]any) (err error) {

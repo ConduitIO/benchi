@@ -35,6 +35,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/sourcegraph/conc/pool"
 
+	_ "github.com/conduitio/benchi/metrics/conduit"
 	_ "github.com/conduitio/benchi/metrics/prometheus"
 )
 
@@ -408,7 +409,7 @@ func (r *TestRunner) runPostTest(ctx context.Context) (err error) {
 
 	var errs []error
 	for _, collector := range r.collectors {
-		err := r.exportMetrics(logger, collector)
+		err := r.exportMetricsCSV(logger, collector)
 		if err != nil {
 			logger.Error("Failed to export collector metrics", "name", collector.Name(), "error", err)
 			errs = append(errs, fmt.Errorf("failed to export collector metrics %s: %w", collector.Name(), err))
@@ -610,44 +611,40 @@ func (r *TestRunner) dockerComposeUpWait(
 	return nil
 }
 
-func (r *TestRunner) exportMetrics(logger *slog.Logger, collector metrics.Collector) error {
-	logger.Info("Exporting metrics", "collector", collector.Name())
-	for name, mm := range collector.Metrics() {
-		logger.Debug("Collected metric", "name", name, "sample-count", len(mm))
+func (r *TestRunner) exportMetricsCSV(logger *slog.Logger, collector metrics.Collector) error {
+	path := filepath.Join(r.resultsDir, fmt.Sprintf("%s.csv", collector.Name()))
+	logger.Info("Exporting metrics", "collector", collector.Name(), "path", path)
 
-		// TODO sanitize name
-		filename := fmt.Sprintf("%s-%s.csv", collector.Name(), name)
-		err := r.exportCSV(
-			filepath.Join(r.resultsDir, filename),
-			[]string{"time", "value"},
-			mm,
-		)
-
-		if err != nil {
-			return fmt.Errorf("failed to export metrics for %s.%s: %w", collector.Name(), name, err)
-		}
-	}
-	return nil
-}
-
-func (r *TestRunner) exportCSV(path string, header []string, values []metrics.Metric) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("error creating file: %w", err)
 	}
 	defer f.Close()
 
+	header := []string{"time"}
+
+	metricNames := slices.Collect(maps.Keys(collector.Metrics()))
+	slices.Sort(metricNames)
+	header = append(header, metricNames...)
+
+	records := make([][]string, 0)
+	for col, name := range metricNames {
+		series := collector.Metrics()[name]
+		for i, sample := range series {
+			if len(records) <= i {
+				records = append(records, make([]string, len(metricNames)+1))
+				records[i][0] = sample.At.Format(time.RFC3339)
+			}
+			records[i][col+1] = fmt.Sprintf("%f", sample.Value)
+		}
+	}
+
 	writer := csv.NewWriter(f)
 	err = writer.Write(header)
 	if err != nil {
-		f.Close()
 		return fmt.Errorf("error writing header: %w", err)
 	}
 
-	records := make([][]string, len(values))
-	for i, v := range values {
-		records[i] = []string{v.At.Format(time.RFC3339), fmt.Sprintf("%f", v.Value)}
-	}
 	return writer.WriteAll(records)
 }
 
