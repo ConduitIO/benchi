@@ -60,12 +60,14 @@ type TestRunnerOptions struct {
 	DockerClient client.APIClient
 }
 
-func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) TestRunners {
+func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) (TestRunners, error) {
 	runs := make(TestRunners, 0, len(cfg.Tests)*len(cfg.Tools))
 
 	for _, t := range cfg.Tests {
+		logger := slog.Default().With("test", t.Name)
+
 		if len(opt.FilterTests) > 0 && !slices.Contains(opt.FilterTests, t.Name) {
-			slog.Info("Skipping test", "test", t.Name, "filter", opt.FilterTests)
+			logger.Info("Skipping test", "filter", opt.FilterTests)
 			continue
 		}
 
@@ -77,24 +79,6 @@ func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) TestRunners {
 			infra = append(infra, v)
 		}
 
-		collectors := make([]metrics.Collector, 0, len(cfg.Metrics)+len(t.Metrics))
-		for name, v := range cfg.Metrics {
-			// TODO create collector in test, not here, the logger is wrong
-			collector, err := metrics.NewCollector(slog.Default(), name, v.Collector)
-			if err != nil {
-				// TODO return error when done in test
-				slog.Error("Failed to create collector", "name", name, "error", err)
-				continue
-			}
-			err = collector.Configure(v.Settings)
-			if err != nil {
-				// TODO return error when done in test
-				slog.Error("Failed to configure collector", "name", name, "error", err)
-				continue
-			}
-			collectors = append(collectors, collector)
-		}
-
 		toolNames := slices.Collect(maps.Keys(cfg.Tools))
 		for k := range t.Tools {
 			if _, ok := cfg.Tools[k]; !ok {
@@ -104,8 +88,10 @@ func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) TestRunners {
 		slices.Sort(toolNames)
 
 		for _, tool := range toolNames {
+			logger = logger.With("tool", tool)
+
 			if len(opt.FilterTools) > 0 && !slices.Contains(opt.FilterTools, tool) {
-				slog.Info("Skipping tool", "tool", tool)
+				logger.Info("Skipping tool")
 				continue
 			}
 
@@ -123,6 +109,24 @@ func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) TestRunners {
 				}
 			}
 
+			collectors := make([]metrics.Collector, 0, len(cfg.Metrics))
+			for name, v := range cfg.Metrics {
+				if len(v.Tools) > 0 && !slices.Contains(v.Tools, tool) {
+					logger.Debug("Skipping collector", "collector", name)
+					continue
+				}
+
+				collector, err := metrics.NewCollector(logger, name, v.Collector)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create collector %s: %w", name, err)
+				}
+				err = collector.Configure(v.Settings)
+				if err != nil {
+					return nil, fmt.Errorf("failed to configure collector %s: %w", name, err)
+				}
+				collectors = append(collectors, collector)
+			}
+
 			runs = append(runs, &TestRunner{
 				infrastructure: infra,
 				tools:          tools,
@@ -136,12 +140,12 @@ func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) TestRunners {
 				resultsDir:   filepath.Join(opt.ResultsDir, fmt.Sprintf("%s_%s_%s", opt.StartedAt.Format("20060102150405"), t.Name, tool)),
 				dockerClient: opt.DockerClient,
 
-				logger: slog.Default().With("test", t.Name, "tool", tool),
+				logger: logger,
 			})
 		}
 	}
 
-	return runs
+	return runs, nil
 }
 
 // TestRunner is a single test run for a single tool.
@@ -651,6 +655,10 @@ func (r *TestRunner) exportMetricsCSV(logger *slog.Logger, collector metrics.Col
 func (r *TestRunner) runHooks(ctx context.Context, logger *slog.Logger, hooks []config.TestHook) error {
 	logger.Debug("Running hooks", "count", len(hooks))
 	for _, hook := range hooks {
+		if len(hook.Tools) > 0 && !slices.Contains(hook.Tools, r.tool) {
+			logger.Debug("Skipping hook", "hook", hook.Name, "tools", hook.Tools)
+			continue
+		}
 		err := r.runHook(ctx, logger, hook)
 		if err != nil {
 			return fmt.Errorf("failed to run hook %s:%s: %w", r.step, hook.Name, err)

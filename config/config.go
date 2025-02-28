@@ -23,7 +23,7 @@ type Config struct {
 	// Tools defines the tools configuration.
 	Tools Tools `yaml:"tools"`
 	// Metrics defines the metrics collectors configuration.
-	Metrics MetricsCollectors `yaml:"metrics"`
+	Metrics map[string]MetricsCollector `yaml:"metrics"`
 	// Tests defines the test configurations.
 	Tests []Test `yaml:"tests"`
 }
@@ -42,9 +42,6 @@ type Infrastructure map[string]ServiceConfig
 // Tools represents a map of service configurations for the tools.
 type Tools map[string]ServiceConfig
 
-// MetricsCollectors represents a map of metrics collector configurations.
-type MetricsCollectors map[string]MetricsCollector
-
 // MetricsCollector represents the configuration for a metrics collector.
 type MetricsCollector struct {
 	// Collector is the name of the metrics collector.
@@ -52,6 +49,9 @@ type MetricsCollector struct {
 	// Settings defines additional settings for the metrics collector. The
 	// specific settings depend on the collector.
 	Settings map[string]any `yaml:"settings"`
+	// Tools is a list of tools for which the collector is applicable. If empty,\
+	// the collector will be applied to all tools.
+	Tools []string `yaml:"tools"`
 }
 
 // Test represents the configuration for a test.
@@ -63,9 +63,6 @@ type Test struct {
 	// Tools defines the tools configuration for the test. This configuration will
 	// be merged with the global tools configuration.
 	Tools map[string]ServiceConfig `yaml:"tools"`
-	// Metrics defines the metrics collectors configuration for the test. This
-	// configuration will be merged with the global metrics configuration.
-	Metrics MetricsCollectors `yaml:"metrics"`
 
 	// Name is the name of the test.
 	Name string `yaml:"name"`
@@ -116,4 +113,7 @@ type TestHook struct {
 	Image string `yaml:"image"`
 	// Run is the command to be executed.
 	Run string `yaml:"run"`
+	// Tools is a list of tools for which the hook is applicable. If empty, the
+	// hook will be applied to all tools.
+	Tools []string `yaml:"tools"`
 }

@@ -57,8 +57,6 @@ func NewCollector(logger *slog.Logger, name string) *Collector {
 	return &Collector{
 		logger: logger,
 		name:   name,
-
-		results: make(map[string]promql.Matrix),
 	}
 }
 
@@ -185,23 +183,27 @@ func (p *Collector) Configure(settings map[string]any) (err error) {
 	promqlEngine := promql.NewEngine(promqlEngineOpts)
 	promqlEngine.SetQueryLogger(QueryLogger{p.logger.Handler()})
 
-	// Check that the query is valid.
-	// TODO loop over all queries
-	now := time.Now()
-	q, err := promqlEngine.NewRangeQuery(
-		context.Background(),
-		db,
-		promql.NewPrometheusQueryOpts(false, 0),
-		p.cfg.Queries[0].QueryString,
-		now.Add(-p.cfg.Queries[0].Interval),
-		now,
-		p.cfg.Queries[0].Interval,
-	)
-	if err != nil {
-		return fmt.Errorf("invalid query: %w", err)
+	p.results = make(map[string]promql.Matrix)
+	for _, queryCfg := range p.cfg.Queries {
+		// Check that the query is valid.
+		now := time.Now()
+		q, err := promqlEngine.NewRangeQuery(
+			context.Background(),
+			db,
+			promql.NewPrometheusQueryOpts(false, 0),
+			queryCfg.QueryString,
+			now.Add(-queryCfg.Interval),
+			now,
+			queryCfg.Interval,
+		)
+		if err != nil {
+			return fmt.Errorf("invalid query %s: %w", queryCfg.Name, err)
+		}
+		q.Cancel()
+		q.Close()
+
+		p.results[queryCfg.Name] = nil
 	}
-	q.Cancel()
-	q.Close()
 
 	p.tsdb = db
 	p.scrapeManager = scrapeManager
@@ -317,6 +319,9 @@ func (p *Collector) execQuery(ctx context.Context, queryCfg QueryConfig) error {
 }
 
 func (p *Collector) promqlMatrixToMetrics(m promql.Matrix) []metrics.Metric {
+	if len(m) == 0 {
+		return nil
+	}
 	series := m[0] // TODO add support for multiple series
 	out := make([]metrics.Metric, len(series.Floats))
 	for i, sample := range series.Floats {

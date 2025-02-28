@@ -91,8 +91,14 @@ func (m CollectorMonitorModel) Update(msg tea.Msg) (CollectorMonitorModel, tea.C
 func (m CollectorMonitorModel) View() string {
 	s := ""
 	for name, samples := range m.samples {
-		s += fmt.Sprintf("- %s: %s: %.2f\t", m.collector.Name(), name, samples[len(samples)-1])
-		s += sparkline(samples)
+		s += fmt.Sprintf("- %s: %s: ", m.collector.Name(), name)
+		if len(samples) > 0 {
+			s += fmt.Sprintf("%.2f\t", samples[len(samples)-1])
+			s += sparkline(samples)
+		} else {
+			s += "N/A"
+		}
+
 		s += "\n"
 	}
 	return s

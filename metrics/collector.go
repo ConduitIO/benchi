@@ -66,5 +66,6 @@ func NewCollector(logger *slog.Logger, name string, collectorType string) (Colle
 	if !ok {
 		return nil, fmt.Errorf("unknown collector type: %s", collectorType)
 	}
-	return newFunc(logger, name), nil
+
+	return newFunc(logger.With("collector", name, "type", collectorType), name), nil
 }

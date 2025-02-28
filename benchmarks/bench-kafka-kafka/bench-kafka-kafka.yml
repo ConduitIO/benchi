@@ -10,13 +10,15 @@ tools:
 
 metrics:
   conduit:
-    collector: conduit
+    collector: conduit # type of the collector, one of: conduit, prometheus, kafka, docker
+    tools:
+      - conduit
     settings:
       url: http://localhost:8080/metrics
 
 tests:
   - name: kafka-to-kafka
-    duration: 60s
+    duration: 1m
 
     tools:
       conduit:

@@ -223,13 +223,16 @@ func (m mainModel) initCmd() tea.Cmd {
 		}
 		slog.Info("Using network", "network", net.Name, "network-id", net.ID)
 
-		testRunners := benchi.BuildTestRunners(cfg, benchi.TestRunnerOptions{
+		testRunners, err := benchi.BuildTestRunners(cfg, benchi.TestRunnerOptions{
 			ResultsDir:   resultsDir,
 			StartedAt:    now,
 			FilterTests:  *tests,
 			FilterTools:  *tools,
 			DockerClient: dockerClient,
 		})
+		if err != nil {
+			return fmt.Errorf("failed to build test runners: %w", err)
+		}
 
 		return mainModelMsgInitDone{
 			config:       cfg,
@@ -570,14 +573,12 @@ func (m testModel) View() string {
 	s += "Tools:\n"
 	s += m.toolsModel.View()
 
-	if m.currentStep == benchi.StepTest {
-		s += "\n"
-		s += "Metrics:\n"
+	s += "\n"
+	s += "Metrics:\n"
 
-		indentStyle := lipgloss.NewStyle().PaddingLeft(2)
-		for _, c := range m.collectorModels {
-			s += indentStyle.Render(c.View())
-		}
+	indentStyle := lipgloss.NewStyle().PaddingLeft(2)
+	for _, c := range m.collectorModels {
+		s += indentStyle.Render(c.View())
 	}
 
 	return s
