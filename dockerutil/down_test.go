@@ -15,13 +15,12 @@
 package dockerutil
 
 import (
-	"context"
 	"reflect"
 	"testing"
 )
 
 func TestComposeDownCmd(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	tests := []struct {
 		name       string

@@ -32,11 +32,10 @@ import (
 	"github.com/conduitio/benchi/config"
 	"github.com/conduitio/benchi/dockerutil"
 	"github.com/conduitio/benchi/metrics"
-	"github.com/docker/docker/client"
-	"github.com/sourcegraph/conc/pool"
-
 	_ "github.com/conduitio/benchi/metrics/conduit"
 	_ "github.com/conduitio/benchi/metrics/prometheus"
+	"github.com/docker/docker/client"
+	"github.com/sourcegraph/conc/pool"
 )
 
 const (
@@ -384,7 +383,7 @@ func (r *TestRunner) runTest(ctx context.Context) (err error) {
 		defer logTicker.Stop()
 
 		for {
-			logger.Info("Test in progress", "time-left", endTestAt.Sub(time.Now()).Truncate(time.Second))
+			logger.Info("Test in progress", "time-left", time.Until(endTestAt).Truncate(time.Second))
 			select {
 			case <-ctx.Done():
 				if !errors.Is(ctx.Err(), context.DeadlineExceeded) {

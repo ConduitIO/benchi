@@ -498,7 +498,6 @@ func (m testModel) doneCmd() tea.Cmd {
 
 func (m testModel) Update(msg tea.Msg) (testModel, tea.Cmd) {
 	switch msg := msg.(type) {
-
 	case testModelMsgDone:
 		return m, nil
 
