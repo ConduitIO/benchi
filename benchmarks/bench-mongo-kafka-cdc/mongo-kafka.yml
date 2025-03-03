@@ -1,0 +1,51 @@
+infrastructure:
+  kafka:
+    docker-compose: ../infra/docker-compose-kafka.yml
+  mongo:
+    docker-compose: ../infra/mongo/compose.yaml
+
+tools:
+  kafka-connect:
+    docker-compose: ../tools/docker-compose-kafka-connect.yml
+  conduit:
+    docker-compose: ../tools/docker-compose-conduit.yml
+
+metrics:
+  conduit:
+    collector: conduit # type of the collector, one of: conduit, prometheus, kafka, docker
+    tools:
+      - conduit
+    settings:
+      url: http://localhost:8080/metrics
+
+tests:
+  - name: mongo-to-kafka
+    duration: 1m
+
+    tools:
+      conduit:
+        docker-compose: ./conduit/docker-compose-conduit.override.yml
+
+    steps:
+      pre-infrastructure:
+      post-infrastructure:
+        - name: "Create database"
+          container: "mongo1"
+          run: |-
+            /scripts/init_db.sh
+      pre-tool:
+        - name: "Set up CDC"
+          container: "benchi-conduit"
+          run: |-
+            /app/scripts/start_pipeline.sh
+            /app/scripts/stop_pipeline.sh
+        - name: "Insert test data"
+          container: "benchi-mongo1"
+          run: |
+            /scripts/insert_test_data.sh
+      post-tool:
+      pre-test:
+      during:
+      post-test:
+      pre-cleanup:
+      post-cleanup:
