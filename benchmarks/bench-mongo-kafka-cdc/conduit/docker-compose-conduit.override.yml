@@ -1,0 +1,6 @@
+services:
+  conduit:
+    volumes:
+      # mount path is relative to the location of the original docker-compose file
+      - ../bench-mongo-kafka/conduit/pipeline.yml:/app/pipelines/pipeline.yml
+      - ./scripts/:/app/scripts/
