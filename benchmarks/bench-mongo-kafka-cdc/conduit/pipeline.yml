@@ -23,9 +23,5 @@ pipelines:
             servers: "benchi-kafka:9092"
             topic: destination-topic
             compression: "none"
-            # batch size in Kafka Connect is 16kb, messages are around 800b
-            # which results in about 20 messages per batch.
             sdk.batch.size: 10000
             sdk.batch.delay: "1s"
-#            sdk.record.format: "debezium/json"
-#            sdk.record.format.options: "position.excluded=true"
