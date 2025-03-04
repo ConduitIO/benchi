@@ -4,7 +4,7 @@ go 1.24
 
 require (
 	github.com/charmbracelet/bubbles v0.20.0
-	github.com/charmbracelet/bubbletea v1.3.3
+	github.com/charmbracelet/bubbletea v1.3.4
 	github.com/charmbracelet/lipgloss v1.0.0
 	github.com/docker/docker v27.5.1+incompatible
 	github.com/golangci/golangci-lint v1.64.6
