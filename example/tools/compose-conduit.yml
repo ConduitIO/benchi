@@ -1,6 +1,6 @@
 services:
   conduit:
-    image: ghcr.io/conduitio/conduit:v0.13.1
+    image: ghcr.io/hariso/custom-conduit:v0.8.0
     container_name: benchi-conduit
     networks:
       - benchi
@@ -8,6 +8,8 @@ services:
       - '8080:8080'
     environment:
       CONDUIT_LOG_FORMAT: json
+    volumes:
+      - ./conduit-scripts:/app/scripts
 
 networks:
   benchi:

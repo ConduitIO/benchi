@@ -15,7 +15,7 @@ services:
       interval: 10s
       start_period: 30s
     volumes:
-      - ./scripts:/scripts
+      - ./mongo/scripts:/scripts
     networks:
       - benchi
   
