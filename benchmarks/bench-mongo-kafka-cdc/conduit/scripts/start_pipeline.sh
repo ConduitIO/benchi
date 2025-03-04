@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -euo pipefail
+set -eu
 
 # Save the current timestamp
 date +"%Y-%m-%d %H:%M:%S" > pipeline_start_time.txt
