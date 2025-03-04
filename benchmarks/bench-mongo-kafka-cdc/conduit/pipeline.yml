@@ -20,7 +20,7 @@ pipelines:
           plugin: builtin:kafka
           name: kafka-destination
           settings:
-            servers: "broker:29092"
+            servers: "benchi-kafka:9092"
             topic: destination-topic
             compression: "none"
             # batch size in Kafka Connect is 16kb, messages are around 800b

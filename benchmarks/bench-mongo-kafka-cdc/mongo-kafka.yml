@@ -2,7 +2,7 @@ infrastructure:
   kafka:
     docker-compose: ../infra/docker-compose-kafka.yml
   mongo:
-    docker-compose: ../infra/mongo/compose.yaml
+    docker-compose: ../infra/docker-compose-mongo.yml
 
 tools:
   kafka-connect:
@@ -28,22 +28,29 @@ tests:
 
     steps:
       pre-infrastructure:
-      post-infrastructure:
+      post-infrastructure:    
         - name: "Create database"
           container: "mongo1"
           run: |-
             /scripts/init_db.sh
       pre-tool:
+      post-tool:
+        - name: "Install curl"
+          container: "benchi-conduit"
+          run: |-
+            /app/scripts/install_curl.sh
         - name: "Set up CDC"
           container: "benchi-conduit"
           run: |-
-            /app/scripts/start_pipeline.sh
-            /app/scripts/stop_pipeline.sh
+            /app/scripts/start_pipeline.sh && /app/scripts/stop_pipeline.sh
         - name: "Insert test data"
-          container: "benchi-mongo1"
+          container: "mongo1"
           run: |
             /scripts/insert_test_data.sh
-      post-tool:
+        - name: "Start pipeline"
+          container: "benchi-conduit"
+          run: |-
+            /app/scripts/start_pipeline.sh
       pre-test:
       during:
       post-test:
