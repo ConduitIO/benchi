@@ -1,20 +1,14 @@
 #!/bin/bash
 
-set -eou pipefail
+set -eu
 
-N=1
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Start timer
 SECONDS=0
 
-for ((i=1; i<=N; i++)); do
-  mongosh "mongodb://mongo1:30001,mongo2:30002,mongo3:30003/test?replicaSet=my-replica-set" \
-    --eval "load(\"$SCRIPT_DIR/insert-test-users.js\")" &
-done
-
-# Wait for all background jobs to finish
-wait
+mongosh "mongodb://mongo1:30001,mongo2:30002,mongo3:30003/test?replicaSet=my-replica-set" \
+    --eval "load(\"$SCRIPT_DIR/insert-test-users.js\")"
 
 # Calculate elapsed time
-echo "All $N parallel executions completed in $SECONDS seconds."
+echo "Completed in $SECONDS seconds."
