@@ -27,7 +27,7 @@ import (
 // Returns error if the compose command fails.
 func ComposePull(ctx context.Context, composeOpt ComposeOptions, pullOpt ComposePullOptions) error {
 	cmd := pullCmd(ctx, composeOpt, pullOpt)
-	return execCmd(cmd)
+	return logAndRun(cmd)
 }
 
 // ComposePullOptions represents the options for the pull command.

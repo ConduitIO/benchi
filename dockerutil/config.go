@@ -27,7 +27,7 @@ import (
 // Returns error if the compose command fails.
 func ComposeConfig(ctx context.Context, composeOpt ComposeOptions, configOpt ComposeConfigOptions) error {
 	cmd := configCmd(ctx, composeOpt, configOpt)
-	return execCmd(cmd)
+	return logAndRun(cmd)
 }
 
 // ComposeConfigOptions represents the options for the config command.

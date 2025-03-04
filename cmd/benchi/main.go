@@ -44,10 +44,10 @@ import (
 )
 
 var (
-	configPath = flag.String("config", "", "path to the benchmark config file")
-	outPath    = flag.String("out", "./results", "path to the output folder")
-	tools      = internal.StringsFlag("tool", nil, "filter tool to be tested (can be provided multiple times)")
-	tests      = internal.StringsFlag("tests", nil, "filter test to run (can be provided multiple times)")
+	configPathFlag = flag.String("config", "", "path to the benchmark config file")
+	outPathFlag    = flag.String("out", "./results", "path to the output folder")
+	toolsFlag      = internal.StringsFlag("tool", nil, "filter tool to be tested (can be provided multiple times)")
+	testsFlag      = internal.StringsFlag("tests", nil, "filter test to run (can be provided multiple times)")
 )
 
 func main() {
@@ -60,27 +60,30 @@ func main() {
 func mainE() error {
 	flag.Parse()
 
-	if configPath == nil || strings.TrimSpace(*configPath) == "" {
+	if configPathFlag == nil || strings.TrimSpace(*configPathFlag) == "" {
 		return fmt.Errorf("config path is required")
 	}
 
 	// Create output directory if it does not exist.
-	err := os.MkdirAll(*outPath, 0o755)
+	err := os.MkdirAll(*outPathFlag, 0o755)
 	if err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
 	now := time.Now()
 	infoReader, errorReader, closeLog, err := prepareLogger(now)
+	if err != nil {
+		return fmt.Errorf("failed to prepare logger: %w", err)
+	}
 	defer closeLog()
 
 	_, err = tea.NewProgram(newMainModel(infoReader, errorReader, now)).Run()
-	return err
+	return err //nolint:wrapcheck // Wrapping this error wouldn't add any value.
 }
 
-func prepareLogger(now time.Time) (io.Reader, io.Reader, func() error, error) {
+func prepareLogger(now time.Time) (io.Reader, io.Reader, func(), error) {
 	// Create log file.
-	logPath := filepath.Join(*outPath, fmt.Sprintf("%s_benchi.log", now.Format("20060102150405")))
+	logPath := filepath.Join(*outPathFlag, fmt.Sprintf("%s_benchi.log", now.Format("20060102150405")))
 	logFile, err := os.Create(logPath)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to create log file: %w", err)
@@ -100,12 +103,14 @@ func prepareLogger(now time.Time) (io.Reader, io.Reader, func() error, error) {
 	)
 	slog.SetDefault(slog.New(logHandler))
 
-	return infoReader, errorReader, func() error {
+	return infoReader, errorReader, func() {
 		var errs []error
 		errs = append(errs, logFile.Close())
 		errs = append(errs, infoWriter.Close())
 		errs = append(errs, errorWriter.Close())
-		return errors.Join(errs...)
+		if err := errors.Join(errs...); err != nil {
+			slog.Error("Failed to close logger", "error", err)
+		}
 	}, nil
 }
 
@@ -167,13 +172,13 @@ func (m mainModel) Init() tea.Cmd {
 func (mainModel) parseConfig(path string) (config.Config, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return config.Config{}, err
+		return config.Config{}, fmt.Errorf("failed to open config file %s: %w", path, err)
 	}
 	defer f.Close()
 	var cfg config.Config
 	err = yaml.NewDecoder(f).Decode(&cfg)
 	if err != nil {
-		return config.Config{}, err
+		return config.Config{}, fmt.Errorf("failed to parse config file %s as YAML: %w", path, err)
 	}
 	return cfg, nil
 }
@@ -183,17 +188,10 @@ func (m mainModel) initCmd() tea.Cmd {
 		now := time.Now()
 
 		// Resolve absolute paths.
-		resultsDir, err := filepath.Abs(*outPath)
+		resultsDir, configPath, err := m.initPaths()
 		if err != nil {
-			return fmt.Errorf("failed to get absolute path for output directory: %w", err)
+			return fmt.Errorf("failed to resolve paths: %w", err)
 		}
-		slog.Info("Results directory", "path", resultsDir)
-
-		configPath, err := filepath.Abs(*configPath)
-		if err != nil {
-			return fmt.Errorf("failed to get absolute path for config file: %w", err)
-		}
-		slog.Info("Config file", "path", configPath)
 
 		// Parse config.
 		cfg, err := m.parseConfig(configPath)
@@ -210,24 +208,16 @@ func (m mainModel) initCmd() tea.Cmd {
 		}
 
 		// Create docker client and initialize network.
-		dockerClient, err := client.NewClientWithOpts(client.FromEnv)
+		dockerClient, err := m.initDocker()
 		if err != nil {
-			return fmt.Errorf("failed to create docker client: %w", err)
+			return fmt.Errorf("failed to initialize docker: %w", err)
 		}
-		defer dockerClient.Close()
-
-		slog.Info("Creating docker network", "network", benchi.NetworkName)
-		net, err := dockerutil.CreateNetworkIfNotExist(m.ctx, dockerClient, benchi.NetworkName)
-		if err != nil {
-			return fmt.Errorf("failed to create docker network: %w", err)
-		}
-		slog.Info("Using network", "network", net.Name, "network-id", net.ID)
 
 		testRunners, err := benchi.BuildTestRunners(cfg, benchi.TestRunnerOptions{
 			ResultsDir:   resultsDir,
 			StartedAt:    now,
-			FilterTests:  *tests,
-			FilterTools:  *tools,
+			FilterTests:  *testsFlag,
+			FilterTools:  *toolsFlag,
 			DockerClient: dockerClient,
 		})
 		if err != nil {
@@ -244,6 +234,40 @@ func (m mainModel) initCmd() tea.Cmd {
 	}
 }
 
+func (mainModel) initPaths() (resultsDir, configPath string, err error) {
+	resultsDir, err = filepath.Abs(*outPathFlag)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get absolute path for output directory: %w", err)
+	}
+	slog.Info("Results directory", "path", resultsDir)
+
+	configPath, err = filepath.Abs(*configPathFlag)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get absolute path for config file: %w", err)
+	}
+	slog.Info("Config file", "path", configPath)
+
+	return resultsDir, configPath, nil
+}
+
+func (m mainModel) initDocker() (client.APIClient, error) {
+	slog.Info("Creating docker client")
+	dockerClient, err := client.NewClientWithOpts(client.FromEnv)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create docker client: %w", err)
+	}
+	dockerClient.NegotiateAPIVersion(m.ctx)
+
+	slog.Info("Creating docker network", "network", benchi.NetworkName)
+	net, err := dockerutil.CreateNetworkIfNotExist(m.ctx, dockerClient, benchi.NetworkName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create docker network: %w", err)
+	}
+	slog.Info("Using network", "network", net.Name, "network-id", net.ID)
+
+	return dockerClient, nil
+}
+
 func (mainModel) runTestCmd(index int) tea.Cmd {
 	return func() tea.Msg {
 		return mainModelMsgNextTest{testIndex: index}
@@ -257,12 +281,18 @@ func (m mainModel) quitCmd() tea.Cmd {
 		if err != nil {
 			slog.Error("Failed to remove network", "network", benchi.NetworkName, "error", err)
 		}
+		err = m.dockerClient.Close()
+		if err != nil {
+			slog.Error("Failed to close docker client", "error", err)
+		}
 		return tea.Quit()
 	}
 }
 
+//nolint:funlen // This function is long because it manages messages for the whole application.
 func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	slog.Debug("Received message", "msg", msg, "type", fmt.Sprintf("%T", msg))
+
 	switch msg := msg.(type) {
 	case mainModelMsgInitDone:
 		m.config = msg.config
@@ -288,6 +318,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.currentTestIndex = msg.testIndex
 		return m, m.tests[m.currentTestIndex].Init()
+
 	case testModelMsgDone:
 		nextIndex := m.currentTestIndex + 1
 		if m.ctx.Err() != nil {
@@ -295,24 +326,25 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			nextIndex = len(m.tests)
 		}
 		return m, m.runTestCmd(nextIndex)
+
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
-			if m.ctx.Err() == nil {
-				// First time, cancel the main context.
+			switch {
+			case m.ctx.Err() == nil:
 				m.ctxCancel()
 				return m, nil
-			} else if m.cleanupCtx.Err() == nil {
-				// Second time, cancel the cleanup context.
+			case m.cleanupCtx.Err() == nil:
 				m.cleanupCtxCancel()
 				return m, nil
-			} else {
-				// Third time, just quit.
+			default:
 				return m, tea.Quit
 			}
 		}
+
 	case error:
 		slog.Error("Error message", "error", msg)
 		return m, nil
+
 	case internal.LogModelMsg:
 		var cmds []tea.Cmd
 
@@ -388,7 +420,7 @@ func newTestModel(ctx context.Context, cleanupCtx context.Context, client client
 	for _, f := range runner.Infrastructure() {
 		infraFiles = append(infraFiles, f.DockerCompose)
 	}
-	infraContainers, err := findContainerNames(infraFiles)
+	infraContainers, err := findContainerNames(ctx, infraFiles)
 	if err != nil {
 		return testModel{}, err
 	}
@@ -397,7 +429,7 @@ func newTestModel(ctx context.Context, cleanupCtx context.Context, client client
 	for _, f := range runner.Tools() {
 		toolFiles = append(toolFiles, f.DockerCompose)
 	}
-	toolContainers, err := findContainerNames(toolFiles)
+	toolContainers, err := findContainerNames(ctx, toolFiles)
 	if err != nil {
 		return testModel{}, err
 	}
@@ -421,10 +453,10 @@ func newTestModel(ctx context.Context, cleanupCtx context.Context, client client
 	}, nil
 }
 
-func findContainerNames(files []string) ([]string, error) {
+func findContainerNames(ctx context.Context, files []string) ([]string, error) {
 	var buf bytes.Buffer
 	err := dockerutil.ComposeConfig(
-		context.Background(),
+		ctx,
 		dockerutil.ComposeOptions{
 			File:   files,
 			Stdout: &buf,

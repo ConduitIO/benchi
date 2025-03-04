@@ -32,8 +32,8 @@ import (
 	"github.com/conduitio/benchi/config"
 	"github.com/conduitio/benchi/dockerutil"
 	"github.com/conduitio/benchi/metrics"
-	_ "github.com/conduitio/benchi/metrics/conduit"
-	_ "github.com/conduitio/benchi/metrics/prometheus"
+	"github.com/conduitio/benchi/metrics/conduit"
+	"github.com/conduitio/benchi/metrics/prometheus"
 	"github.com/docker/docker/client"
 	"github.com/sourcegraph/conc/pool"
 )
@@ -60,6 +60,10 @@ type TestRunnerOptions struct {
 }
 
 func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) (TestRunners, error) {
+	// Register metrics collectors
+	conduit.Register()
+	prometheus.Register()
+
 	runs := make(TestRunners, 0, len(cfg.Tests)*len(cfg.Tools))
 
 	for _, t := range cfg.Tests {

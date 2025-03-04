@@ -15,6 +15,7 @@
 package prometheus
 
 import (
+	"fmt"
 	"net/url"
 	"time"
 )
@@ -34,7 +35,11 @@ type Config struct {
 }
 
 func (c Config) parseURL() (*url.URL, error) {
-	return url.Parse(c.URL)
+	u, err := url.Parse(c.URL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse URL: %w", err)
+	}
+	return u, nil
 }
 
 type QueryConfig struct {

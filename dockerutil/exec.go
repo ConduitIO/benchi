@@ -12,13 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package conduit
+package dockerutil
 
-import "time"
+import (
+	"fmt"
+	"log/slog"
+	"os/exec"
+)
 
-type Config struct {
-	// URL points to the metrics endpoint of the service to be monitored.
-	URL string `yaml:"url"`
-	// ScrapeInterval is the time between scrapes (defaults to 1s).
-	ScrapeInterval time.Duration `yaml:"scrape-interval"`
+func logAndRun(cmd *exec.Cmd) error {
+	slog.Debug("Executing command", "command", cmd.String())
+	err := cmd.Run()
+	if err != nil {
+		slog.Error("Command failed", "command", cmd.String(), "error", err)
+		return fmt.Errorf("failed to run command %s: %w", cmd.String(), err)
+	}
+	return nil
 }

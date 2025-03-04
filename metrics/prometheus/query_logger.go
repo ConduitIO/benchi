@@ -26,7 +26,7 @@ type QueryLogger struct {
 func (l QueryLogger) Handle(ctx context.Context, record slog.Record) error {
 	// Log queries at the debug level.
 	record.Level = slog.LevelDebug
-	return l.Handler.Handle(ctx, record)
+	return l.Handler.Handle(ctx, record) //nolint:wrapcheck // We only overwrite this to change the log level, not wrap the error.
 }
 
 func (QueryLogger) Close() error { return nil }

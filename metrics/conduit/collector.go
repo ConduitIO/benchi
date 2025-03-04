@@ -23,7 +23,11 @@ import (
 
 const Type = "conduit"
 
-func init() { metrics.RegisterCollector(NewCollector) }
+// Register registers the Conduit collector with the metrics system.
+// This function should be called explicitly by the application.
+func Register() {
+	metrics.RegisterCollector(NewCollector)
+}
 
 type Collector struct {
 	prometheus.Collector
@@ -41,6 +45,7 @@ func (c *Collector) Configure(settings map[string]any) error {
 			"interval": "1s",
 		},
 	}
+	//nolint:wrapcheck // The prometheus collector is responsible for wrapping the error.
 	return c.Collector.Configure(settings)
 }
 

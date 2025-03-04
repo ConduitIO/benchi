@@ -4,11 +4,11 @@ test:
 
 .PHONY: lint
 lint:
-	go tool golangci-lint run
+	golangci-lint run
 
 .PHONY: fmt
 fmt:
-	go tool gofumpt -l -w .
+	gofumpt -l -w .
 
 .PHONY: install-tools
 install-tools:

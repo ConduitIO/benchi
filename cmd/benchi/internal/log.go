@@ -16,6 +16,7 @@ package internal
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"strings"
 	"sync/atomic"
@@ -60,12 +61,11 @@ func (m LogModel) Update(msg tea.Msg) (LogModel, tea.Cmd) {
 		return m, nil
 	}
 
-	tmp := m.lines
-	if m.displaySize > 0 && len(tmp) == m.displaySize {
-		tmp = tmp[1:]
+	if m.displaySize > 0 && len(m.lines) == m.displaySize {
+		m.lines = m.lines[1:]
 	}
 
-	m.lines = append(tmp, logMsg.line)
+	m.lines = append(m.lines, logMsg.line)
 	return m, m.readLineCmd()
 }
 
@@ -84,7 +84,7 @@ func (m LogModel) readLineCmd() tea.Cmd {
 			if err == io.EOF {
 				return nil
 			}
-			return err
+			return fmt.Errorf("failed to read log line: %w", err)
 		}
 		line = strings.TrimSpace(line)
 		return LogModelMsg{id: m.id, line: line}

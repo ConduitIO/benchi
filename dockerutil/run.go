@@ -107,11 +107,10 @@ func runDockerCmd(logger *slog.Logger, dockerCmd *exec.Cmd, container, stdin str
 	}()
 
 	// Wait for the command to finish
-	return dockerCmd.Wait()
-}
+	err = dockerCmd.Wait()
+	if err != nil {
+		return fmt.Errorf("command failed: %w", err)
+	}
 
-func execCmd(cmd *exec.Cmd) error {
-	slog.Debug("Executing command", "command", cmd.String())
-
-	return cmd.Run()
+	return nil
 }
