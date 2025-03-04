@@ -12,7 +12,7 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/prometheus/client_golang v1.21.1
 	github.com/prometheus/common v0.62.0
-	github.com/prometheus/prometheus v0.302.0
+	github.com/prometheus/prometheus v0.302.1
 	github.com/samber/slog-multi v1.4.0
 	github.com/sourcegraph/conc v0.3.0
 	golang.org/x/tools v0.30.0
