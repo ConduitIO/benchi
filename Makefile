@@ -12,7 +12,9 @@ fmt:
 
 .PHONY: install-tools
 install-tools:
-	go mod tidy
+	@echo Installing tools from tools.go
+	@go list -e -f '{{ join .Imports "\n" }}' tools.go | xargs -I % go list -f "%@{{.Module.Version}}" % | xargs -tI % go install %
+	@go mod tidy
 
 .PHONY: generate
 generate:
