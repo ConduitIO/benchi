@@ -15,9 +15,7 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -25,7 +23,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -291,7 +288,8 @@ func (m mainModel) quitCmd() tea.Cmd {
 
 //nolint:funlen // This function is long because it manages messages for the whole application.
 func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	slog.Debug("Received message", "msg", msg, "type", fmt.Sprintf("%T", msg))
+	// Only enable if you are debugging the messages, the output will get very verbose.
+	// slog.Debug("Received message", "msg", msg, "type", fmt.Sprintf("%T", msg))
 
 	switch msg := msg.(type) {
 	case mainModelMsgInitDone:
@@ -416,24 +414,6 @@ type testModelMsgStep struct {
 type testModelMsgDone struct{}
 
 func newTestModel(ctx context.Context, cleanupCtx context.Context, client client.APIClient, runner *benchi.TestRunner) (testModel, error) {
-	infraFiles := make([]string, 0, len(runner.Infrastructure()))
-	for _, f := range runner.Infrastructure() {
-		infraFiles = append(infraFiles, f.DockerCompose)
-	}
-	infraContainers, err := findContainerNames(ctx, infraFiles)
-	if err != nil {
-		return testModel{}, err
-	}
-
-	toolFiles := make([]string, 0, len(runner.Tools()))
-	for _, f := range runner.Tools() {
-		toolFiles = append(toolFiles, f.DockerCompose)
-	}
-	toolContainers, err := findContainerNames(ctx, toolFiles)
-	if err != nil {
-		return testModel{}, err
-	}
-
 	collectorModels := make([]internal.CollectorMonitorModel, 0, len(runner.Collectors()))
 	for _, c := range runner.Collectors() {
 		collectorModels = append(collectorModels, internal.NewCollectorMonitorModel(c, 15))
@@ -447,58 +427,10 @@ func newTestModel(ctx context.Context, cleanupCtx context.Context, client client
 
 		// Run container monitor using the cleanup context, to keep monitor
 		// running during cleanup.
-		infrastructureModel: internal.NewContainerMonitorModel(cleanupCtx, client, infraContainers),
-		toolsModel:          internal.NewContainerMonitorModel(cleanupCtx, client, toolContainers),
+		infrastructureModel: internal.NewContainerMonitorModel(cleanupCtx, client, runner.InfrastructureContainers()),
+		toolsModel:          internal.NewContainerMonitorModel(cleanupCtx, client, runner.ToolContainers()),
 		collectorModels:     collectorModels,
 	}, nil
-}
-
-func findContainerNames(ctx context.Context, files []string) ([]string, error) {
-	var buf bytes.Buffer
-	err := dockerutil.ComposeConfig(
-		ctx,
-		dockerutil.ComposeOptions{
-			File:   files,
-			Stdout: &buf,
-		},
-		dockerutil.ComposeConfigOptions{
-			Format: ptr("json"),
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse compose files: %w", err)
-	}
-
-	var cfg map[string]any
-	err = json.NewDecoder(&buf).Decode(&cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse compose config: %w", err)
-	}
-
-	services, ok := cfg["services"].(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("services not found in compose config")
-	}
-
-	containers := make([]string, 0, len(services))
-	for name, srv := range services {
-		srvMap, ok := srv.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("service %s is not a map", name)
-		}
-		containerName, ok := srvMap["container_name"].(string)
-		if !ok || containerName == "" {
-			containerName = name
-		}
-		containers = append(containers, containerName)
-	}
-	slices.Sort(containers)
-
-	return containers, nil
-}
-
-func ptr[T any](v T) *T {
-	return &v
 }
 
 func (m testModel) Init() tea.Cmd {

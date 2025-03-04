@@ -51,7 +51,7 @@ func NewCollectorMonitorModel(collector metrics.Collector, numSamples int) Colle
 	return CollectorMonitorModel{
 		id:         collectorMonitorModelID.Add(1),
 		collector:  collector,
-		samples:    make(map[string][]float64),
+		samples:    metricsToMap(collector.Metrics(), numSamples),
 		numSamples: numSamples,
 		interval:   time.Second,
 	}
@@ -64,14 +64,7 @@ func (m CollectorMonitorModel) Init() tea.Cmd {
 func (m CollectorMonitorModel) scheduleRefreshCmd() tea.Cmd {
 	return tea.Tick(m.interval, func(time.Time) tea.Msg {
 		mm := m.collector.Metrics()
-		samples := make(map[string][]float64)
-		for name, metric := range mm {
-			size := min(m.numSamples, len(metric))
-			samples[name] = make([]float64, size)
-			for i, m := range metric[len(metric)-size:] {
-				samples[name][i] = m.Value
-			}
-		}
+		samples := metricsToMap(mm, m.numSamples)
 
 		return CollectorMonitorModelMsg{id: m.id, samples: samples}
 	})
@@ -128,4 +121,16 @@ func sparkline(data []float64) string {
 	}
 
 	return string(line)
+}
+
+func metricsToMap(mm map[string][]metrics.Metric, size int) map[string][]float64 {
+	samples := make(map[string][]float64)
+	for name, metric := range mm {
+		l := min(size, len(metric))
+		samples[name] = make([]float64, l)
+		for i, m := range metric[len(metric)-l:] {
+			samples[name][i] = m.Value
+		}
+	}
+	return samples
 }

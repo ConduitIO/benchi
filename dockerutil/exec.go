@@ -24,7 +24,6 @@ func logAndRun(cmd *exec.Cmd) error {
 	slog.Debug("Executing command", "command", cmd.String())
 	err := cmd.Run()
 	if err != nil {
-		slog.Error("Command failed", "command", cmd.String(), "error", err)
 		return fmt.Errorf("failed to run command %s: %w", cmd.String(), err)
 	}
 	return nil
