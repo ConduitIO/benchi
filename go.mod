@@ -10,7 +10,7 @@ require (
 	github.com/golangci/golangci-lint v1.64.6
 	github.com/lmittmann/tint v1.0.7
 	github.com/mitchellh/mapstructure v1.5.0
-	github.com/prometheus/client_golang v1.21.0
+	github.com/prometheus/client_golang v1.21.1
 	github.com/prometheus/common v0.62.0
 	github.com/prometheus/prometheus v0.302.0
 	github.com/samber/slog-multi v1.4.0
