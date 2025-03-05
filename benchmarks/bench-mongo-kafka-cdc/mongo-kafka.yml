@@ -1,14 +1,14 @@
 infrastructure:
   kafka:
-    docker-compose: ../infra/docker-compose-kafka.yml
+    docker-compose: ../infra/compose-kafka.yml
   mongo:
-    docker-compose: ../infra/docker-compose-mongo.yml
+    docker-compose: ../infra/compose-mongo.yml
 
 tools:
   kafka-connect:
-    docker-compose: ../tools/docker-compose-kafka-connect.yml
+    docker-compose: ../tools/compose-kafka-connect.yml
   conduit:
-    docker-compose: ../tools/docker-compose-conduit.yml
+    docker-compose: ../tools/compose-conduit.yml
 
 metrics:
   conduit_metrics:
@@ -24,7 +24,7 @@ tests:
 
     tools:
       conduit:
-        docker-compose: ./conduit/docker-compose-conduit.override.yml
+        docker-compose: ./conduit/compose-conduit.override.yml
 
     steps:
       pre-infrastructure:
