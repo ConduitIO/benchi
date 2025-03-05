@@ -9,7 +9,7 @@ services:
     environment:
       CONDUIT_LOG_FORMAT: json
     volumes:
-      - ./conduit-scripts:/app/scripts
+      - ./conduit-scripts:/scripts
 
 networks:
   benchi:
