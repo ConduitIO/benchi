@@ -46,13 +46,19 @@ tests:
       post-tool:
       pre-test:
       during:
-        - name: "Test"
+        - name: "Count forever"
           run: |
             n=1
             while true; do
-              echo "count: $n"
+              echo "count forever: $n"
               n=$(expr $n + 1)
               sleep 1
+            done
+        - name: "Count to 10"
+          run: |
+            for n in $(seq 1 10); do
+              echo "count to 10: $n"
+              sleep 0.5
             done
       post-test:
       pre-cleanup:
