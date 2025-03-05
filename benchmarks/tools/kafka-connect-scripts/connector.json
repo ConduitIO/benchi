@@ -18,7 +18,6 @@
 
         "topic.prefix": "kafkaconnect",
         "poll.await.time.ms": 5000,
-        "poll.max.batch.size": 1000,
-        "batch.size": 130400000
+        "poll.max.batch.size": 1000
     }
 }
