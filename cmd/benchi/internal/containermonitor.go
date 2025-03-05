@@ -42,6 +42,7 @@ var (
 
 type ContainerMonitorModel struct {
 	id         int32
+	logger     *slog.Logger
 	ctx        context.Context
 	client     client.APIClient
 	interval   time.Duration
@@ -63,6 +64,7 @@ func NewContainerMonitorModel(ctx context.Context, client client.APIClient, cont
 	}
 	return ContainerMonitorModel{
 		id:         containerMonitorModelID.Add(1),
+		logger:     slog.Default().With("model", "container-monitor"),
 		ctx:        ctx,
 		client:     client,
 		containers: containers,
@@ -131,13 +133,13 @@ func (m ContainerMonitorModel) scheduleRefreshCmd() tea.Cmd {
 	return tea.Tick(m.interval, func(time.Time) tea.Msg {
 		containersTmp := slices.Clone(m.containers)
 		for i, c := range containersTmp {
-			slog.Debug("Inspecting container", "name", c.Name)
+			m.logger.Debug("Inspecting container", "name", c.Name)
 			inspect, err := m.client.ContainerInspect(m.ctx, c.Name)
 			if err != nil {
 				if errdefs.IsNotFound(err) {
-					slog.Debug("Container not found", "name", c.Name)
+					m.logger.Debug("Container not found", "name", c.Name)
 				} else {
-					slog.Error("Failed to inspect container", "name", c.Name, "error", err)
+					m.logger.Error("Failed to inspect container", "name", c.Name, "error", err)
 				}
 				containersTmp[i] = types.ContainerJSON{ContainerJSONBase: &types.ContainerJSONBase{Name: c.Name}}
 				continue

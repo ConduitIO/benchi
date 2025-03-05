@@ -1,12 +1,12 @@
 infrastructure:
   kafka:
-    docker-compose: ../infra/docker-compose-kafka.yml
+    compose: ../infra/compose-kafka.yml
 
 tools:
   kafka-connect:
-    docker-compose: ../tools/docker-compose-kafka-connect.yml
+    compose: ../tools/compose-kafka-connect.yml
   conduit:
-    docker-compose: ../tools/docker-compose-conduit.yml
+    compose: ../tools/compose-conduit.yml
 
 metrics:
   conduit:
@@ -22,7 +22,7 @@ tests:
 
     tools:
       conduit:
-        docker-compose: ./conduit/docker-compose-conduit.override.yml
+        compose: ./conduit/compose-conduit.override.yml
 
     steps:
       pre-infrastructure:
@@ -46,6 +46,14 @@ tests:
       post-tool:
       pre-test:
       during:
+        - name: "Test"
+          run: |
+            n=1
+            while true; do
+              echo "count: $n"
+              n=$(expr $n + 1)
+              sleep 1
+            done
       post-test:
       pre-cleanup:
       post-cleanup:

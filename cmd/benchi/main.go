@@ -42,7 +42,7 @@ import (
 
 var (
 	configPathFlag = flag.String("config", "", "path to the benchmark config file")
-	outPathFlag    = flag.String("out", "./results", "path to the output folder")
+	outPathFlag    = flag.String("out", "./results/${now}", "path to the output folder")
 	toolsFlag      = internal.StringsFlag("tool", nil, "filter tool to be tested (can be provided multiple times)")
 	testsFlag      = internal.StringsFlag("tests", nil, "filter test to run (can be provided multiple times)")
 )
@@ -61,26 +61,31 @@ func mainE() error {
 		return fmt.Errorf("config path is required")
 	}
 
+	if outPathFlag == nil || strings.TrimSpace(*outPathFlag) == "" {
+		return fmt.Errorf("output path is required")
+	}
+
+	*outPathFlag = strings.ReplaceAll(*outPathFlag, "${now}", time.Now().Format("20060102150405"))
+
 	// Create output directory if it does not exist.
 	err := os.MkdirAll(*outPathFlag, 0o755)
 	if err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	now := time.Now()
-	infoReader, errorReader, closeLog, err := prepareLogger(now)
+	infoReader, errorReader, closeLog, err := prepareLogger()
 	if err != nil {
 		return fmt.Errorf("failed to prepare logger: %w", err)
 	}
 	defer closeLog()
 
-	_, err = tea.NewProgram(newMainModel(infoReader, errorReader, now)).Run()
+	_, err = tea.NewProgram(newMainModel(infoReader, errorReader)).Run()
 	return err //nolint:wrapcheck // Wrapping this error wouldn't add any value.
 }
 
-func prepareLogger(now time.Time) (io.Reader, io.Reader, func(), error) {
+func prepareLogger() (io.Reader, io.Reader, func(), error) {
 	// Create log file.
-	logPath := filepath.Join(*outPathFlag, fmt.Sprintf("%s_benchi.log", now.Format("20060102150405")))
+	logPath := filepath.Join(*outPathFlag, "benchi.log")
 	logFile, err := os.Create(logPath)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to create log file: %w", err)
@@ -122,7 +127,6 @@ type mainModel struct {
 	// These fields are initialized in Init
 	config       config.Config
 	resultsDir   string
-	startedAt    time.Time
 	dockerClient client.APIClient
 
 	tests            []testModel
@@ -136,17 +140,18 @@ type mainModel struct {
 type mainModelMsgInitDone struct {
 	config       config.Config
 	resultsDir   string
-	startedAt    time.Time
 	dockerClient client.APIClient
 
 	testRunners benchi.TestRunners
+
+	err error
 }
 
 type mainModelMsgNextTest struct {
 	testIndex int
 }
 
-func newMainModel(infoReader, errorReader io.Reader, now time.Time) mainModel {
+func newMainModel(infoReader, errorReader io.Reader) mainModel {
 	ctx, ctxCancel := context.WithCancel(context.Background())
 	cleanupCtx, cleanupCtxCancel := context.WithCancel(context.Background())
 	return mainModel{
@@ -154,8 +159,6 @@ func newMainModel(infoReader, errorReader io.Reader, now time.Time) mainModel {
 		ctxCancel:        ctxCancel,
 		cleanupCtx:       cleanupCtx,
 		cleanupCtxCancel: cleanupCtxCancel,
-
-		startedAt: now,
 
 		infoLogModel:  internal.NewLogModel(infoReader, 10),
 		errorLogModel: internal.NewLogModel(errorReader, 0),
@@ -182,18 +185,21 @@ func (mainModel) parseConfig(path string) (config.Config, error) {
 
 func (m mainModel) initCmd() tea.Cmd {
 	return func() tea.Msg {
-		now := time.Now()
+		var msg mainModelMsgInitDone
 
 		// Resolve absolute paths.
 		resultsDir, configPath, err := m.initPaths()
 		if err != nil {
-			return fmt.Errorf("failed to resolve paths: %w", err)
+			msg.err = fmt.Errorf("failed to resolve paths: %w", err)
+			return msg
 		}
+		msg.resultsDir = resultsDir
 
 		// Parse config.
-		cfg, err := m.parseConfig(configPath)
+		msg.config, err = m.parseConfig(configPath)
 		if err != nil {
-			return fmt.Errorf("failed to parse config: %w", err)
+			msg.err = fmt.Errorf("failed to parse config: %w", err)
+			return msg
 		}
 		slog.Info("Parsed config", "path", configPath)
 
@@ -201,33 +207,29 @@ func (m mainModel) initCmd() tea.Cmd {
 		// to the config file.
 		err = os.Chdir(filepath.Dir(configPath))
 		if err != nil {
-			return fmt.Errorf("could not change working directory: %w", err)
+			msg.err = fmt.Errorf("could not change working directory: %w", err)
+			return msg
 		}
 
 		// Create docker client and initialize network.
-		dockerClient, err := m.initDocker()
+		msg.dockerClient, err = m.initDocker()
 		if err != nil {
-			return fmt.Errorf("failed to initialize docker: %w", err)
+			msg.err = fmt.Errorf("failed to initialize docker: %w", err)
+			return msg
 		}
 
-		testRunners, err := benchi.BuildTestRunners(cfg, benchi.TestRunnerOptions{
-			ResultsDir:   resultsDir,
-			StartedAt:    now,
+		msg.testRunners, err = benchi.BuildTestRunners(msg.config, benchi.TestRunnerOptions{
+			ResultsDir:   msg.resultsDir,
 			FilterTests:  *testsFlag,
 			FilterTools:  *toolsFlag,
-			DockerClient: dockerClient,
+			DockerClient: msg.dockerClient,
 		})
 		if err != nil {
-			return fmt.Errorf("failed to build test runners: %w", err)
+			msg.err = fmt.Errorf("failed to build test runners: %w", err)
+			return msg
 		}
 
-		return mainModelMsgInitDone{
-			config:       cfg,
-			resultsDir:   resultsDir,
-			startedAt:    now,
-			dockerClient: dockerClient,
-			testRunners:  testRunners,
-		}
+		return msg
 	}
 }
 
@@ -273,14 +275,16 @@ func (mainModel) runTestCmd(index int) tea.Cmd {
 
 func (m mainModel) quitCmd() tea.Cmd {
 	return func() tea.Msg {
-		slog.Info("Removing docker network", "network", benchi.NetworkName)
-		err := dockerutil.RemoveNetwork(m.cleanupCtx, m.dockerClient, benchi.NetworkName)
-		if err != nil {
-			slog.Error("Failed to remove network", "network", benchi.NetworkName, "error", err)
-		}
-		err = m.dockerClient.Close()
-		if err != nil {
-			slog.Error("Failed to close docker client", "error", err)
+		if m.dockerClient != nil {
+			slog.Info("Removing docker network", "network", benchi.NetworkName)
+			err := dockerutil.RemoveNetwork(m.cleanupCtx, m.dockerClient, benchi.NetworkName)
+			if err != nil {
+				slog.Error("Failed to remove network", "network", benchi.NetworkName, "error", err)
+			}
+			err = m.dockerClient.Close()
+			if err != nil {
+				slog.Error("Failed to close docker client", "error", err)
+			}
 		}
 		return tea.Quit()
 	}
@@ -295,7 +299,6 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case mainModelMsgInitDone:
 		m.config = msg.config
 		m.resultsDir = msg.resultsDir
-		m.startedAt = msg.startedAt
 		m.dockerClient = msg.dockerClient
 
 		tests := make([]testModel, len(msg.testRunners))
@@ -307,8 +310,13 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			tests[i] = test
 		}
 		m.tests = tests
-		m.initialized = true
 
+		if msg.err != nil {
+			slog.Error("Error initializing", "error", msg.err)
+			return m, m.quitCmd()
+		}
+
+		m.initialized = true
 		return m, m.runTestCmd(0)
 	case mainModelMsgNextTest:
 		if msg.testIndex >= len(m.tests) {

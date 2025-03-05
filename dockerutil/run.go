@@ -17,9 +17,13 @@ package dockerutil
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os/exec"
+	"sync/atomic"
+	"syscall"
+	"time"
 )
 
 // RunInContainer executes a command in the specified container. The container
@@ -31,58 +35,59 @@ func RunInContainer(ctx context.Context, logger *slog.Logger, container, command
 	}
 
 	// Build the docker run command
-	dockerCmd := exec.CommandContext(ctx, "docker",
+	dockerCmd := exec.Command("docker",
 		"exec",
-		"--interactive", // Keep stdin open
-		container,       // The container to run the command in
-		"sh",            // Run command through shell
+		"--interactive",     // Keep stdin open
+		container,           // The container to run the command in
+		"sh", "-c", command, // Run command through shell
 	)
 
-	return runDockerCmd(logger, dockerCmd, container, command)
+	return runDockerCmd(ctx, logger, dockerCmd, container)
 }
 
 // RunInDockerNetwork executes a command in a temporary container connected to
-// the specified Docker network. The container will use the alpine image and
-// will be removed after execution.
+// the specified Docker network. The container will be removed after execution.
 func RunInDockerNetwork(ctx context.Context, logger *slog.Logger, image, networkName, command string) error {
+	container := randomContainerName()
+
 	// Build the docker run command
-	dockerCmd := exec.CommandContext(ctx, "docker",
+	dockerCmd := exec.Command("docker",
 		"run",
 		"--rm",                   // Remove container after execution
 		"--interactive",          // Keep stdin open
 		"--network", networkName, // Connect to specified network
-		image, // Use provided image
-		"sh",  // Run command through shell
+		"--name", container, // Give the container a random name
+		"--init",            // Run an init process
+		image,               // Use provided image
+		"sh", "-c", command, // Run command through shell
 	)
 
-	return runDockerCmd(logger, dockerCmd, "[temporary]", command)
+	return runDockerCmd(ctx, logger, dockerCmd, container)
 }
 
-func runDockerCmd(logger *slog.Logger, dockerCmd *exec.Cmd, container, stdin string) error {
-	// Create pipes for stdin, stdout and stderr
-	stdinPipe, err := dockerCmd.StdinPipe()
-	if err != nil {
-		return fmt.Errorf("failed to get stdin pipe: %w", err)
-	}
-	stdoutPipe, err := dockerCmd.StdoutPipe()
+var containerNameCounter atomic.Int32
+
+func randomContainerName() string {
+	return fmt.Sprintf("benchi-temporary-%d", containerNameCounter.Add(1))
+}
+
+//nolint:funlen // Maybe refactor later.
+func runDockerCmd(ctx context.Context, logger *slog.Logger, cmd *exec.Cmd, container string) error {
+	// Create pipes for stdout and stderr
+	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("failed to get stdout pipe: %w", err)
 	}
-	stderrPipe, err := dockerCmd.StderrPipe()
+	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
 		return fmt.Errorf("failed to get stderr pipe: %w", err)
 	}
 
 	// Start the command
-	if err := dockerCmd.Start(); err != nil {
+	logger.Debug("Executing command", "command", cmd.String())
+	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start command: %w", err)
 	}
-
-	// Write the input string to stdin and close it
-	go func() {
-		defer stdinPipe.Close()
-		_, _ = stdinPipe.Write([]byte(stdin))
-	}()
 
 	// Read from stdout
 	go func() {
@@ -106,9 +111,44 @@ func runDockerCmd(logger *slog.Logger, dockerCmd *exec.Cmd, container, stdin str
 		}
 	}()
 
-	// Wait for the command to finish
-	err = dockerCmd.Wait()
+	// Handle context cancellation gracefully
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait() // Wait for process to exit
+	}()
+
+	select {
+	case <-ctx.Done():
+		logger.Warn("Context canceled, sending SIGINT")
+
+		// Send SIGINT to the process first
+		if err := cmd.Process.Signal(syscall.SIGINT); err != nil {
+			logger.Error("Failed to send SIGINT", "error", err)
+		}
+
+		// Give the process some time to exit cleanly
+		select {
+		case err = <-done:
+			break // Process exited normally
+		case <-time.After(10 * time.Second):
+			logger.Error("Process did not exit in time, killing it")
+			if err := cmd.Process.Kill(); err != nil {
+				logger.Error("Failed to kill process", "error", err)
+				return fmt.Errorf("failed to kill process: %w", err)
+			}
+		}
+	case err = <-done:
+		break // Process exited normally
+	}
+
 	if err != nil {
+		// If the exit code is 130 (SIGINT) and the context is cancelled,
+		// consider it a normal termination.
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) && exitError.ExitCode() == 130 && ctx.Err() != nil {
+			logger.Info("Process was interrupted (expected)", "container", container)
+			return nil //nolint:nilerr // Expected error
+		}
 		return fmt.Errorf("command failed: %w", err)
 	}
 
