@@ -28,7 +28,7 @@ import (
 // Returns error if the compose command fails.
 func ComposeDown(ctx context.Context, composeOpt ComposeOptions, downOpt ComposeDownOptions) error {
 	cmd := downCmd(ctx, composeOpt, downOpt)
-	return execCmd(cmd)
+	return logAndRun(cmd)
 }
 
 // ComposeDownOptions represents the options for the down command.

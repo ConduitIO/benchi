@@ -30,13 +30,17 @@ import (
 	"github.com/prometheus/prometheus/discovery/targetgroup"
 	"github.com/prometheus/prometheus/promql"
 	"github.com/prometheus/prometheus/scrape"
+	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb"
 	"github.com/sourcegraph/conc/pool"
 )
 
 const Type = "prometheus"
 
-func init() { metrics.RegisterCollector(NewCollector) }
+// Register registers the Prometheus collector with the metrics registry.
+func Register() {
+	metrics.RegisterCollector(NewCollector)
+}
 
 type Collector struct {
 	logger *slog.Logger
@@ -60,97 +64,98 @@ func NewCollector(logger *slog.Logger, name string) *Collector {
 	}
 }
 
-func (p *Collector) Name() string {
-	return p.name
+func (c *Collector) Name() string {
+	return c.name
 }
 
-func (p *Collector) Type() string {
+func (c *Collector) Type() string {
 	return Type
 }
 
-func (p *Collector) Metrics() map[string][]metrics.Metric {
+func (c *Collector) Metrics() map[string][]metrics.Metric {
 	out := make(map[string][]metrics.Metric)
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	for name, m := range p.results {
-		out[name] = p.promqlMatrixToMetrics(m)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for name, m := range c.results {
+		out[name] = c.promqlMatrixToMetrics(m)
 	}
 	return out
 }
 
-func (p *Collector) Configure(settings map[string]any) (err error) {
-	p.cfg = defaultConfig
+func (c *Collector) Configure(settings map[string]any) (err error) {
+	cfg, err := c.parseConfig(settings)
+	if err != nil {
+		return fmt.Errorf("failed to parse config: %w", err)
+	}
+
+	registry := prometheus.NewRegistry()
+	promCfg := c.prometheusConfig(cfg)
+
+	db, dbCleanup, err := c.initTsdb(registry)
+	if err != nil {
+		return fmt.Errorf("failed to initialize tsdb: %w", err)
+	}
+	defer dbCleanup()
+
+	scrapeManager, err := c.initScrapeManager(registry, promCfg, db)
+	if err != nil {
+		return fmt.Errorf("failed to initialize scrape manager: %w", err)
+	}
+
+	promqlEngine := c.initPromqlEngine(registry, cfg, promCfg)
+	err = c.validateQueries(promqlEngine, db, cfg.Queries)
+	if err != nil {
+		return fmt.Errorf("failed to validate queries: %w", err)
+	}
+
+	c.cfg = cfg
+	c.tsdb = db
+	c.scrapeManager = scrapeManager
+	c.promqlEngine = promqlEngine
+	c.results = make(map[string]promql.Matrix)
+	for _, queryCfg := range cfg.Queries {
+		c.results[queryCfg.Name] = nil
+	}
+
+	return nil
+}
+
+func (c *Collector) parseConfig(settings map[string]any) (Config, error) {
+	cfg := defaultConfig
 	dec, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		DecodeHook:       mapstructure.StringToTimeDurationHookFunc(),
 		ErrorUnused:      true,
 		WeaklyTypedInput: true,
-		Result:           &p.cfg,
+		Result:           &cfg,
 		TagName:          "yaml",
 	})
 	if err != nil {
-		return err
+		return Config{}, fmt.Errorf("failed to create decoder: %w", err)
 	}
 
 	err = dec.Decode(settings)
 	if err != nil {
-		return err
+		return Config{}, fmt.Errorf("failed to decode settings: %w", err)
 	}
-
-	registry := prometheus.NewRegistry()
 
 	// Try parsing the URL to ensure it's valid.
-	_, err = p.cfg.parseURL()
+	_, err = cfg.parseURL()
 	if err != nil {
-		return fmt.Errorf("error parsing URL: %w", err)
+		return Config{}, fmt.Errorf("failed to parse URL: %w", err)
 	}
 
-	dataPath, err := os.MkdirTemp("", fmt.Sprintf("*-benchi-prometheus-%s", p.Name()))
+	return cfg, nil
+}
+
+func (c *Collector) prometheusConfig(cfg Config) *config.Config {
+	promCfg, err := config.Load("", c.logger)
 	if err != nil {
-		return fmt.Errorf("error creating temporary directory: %w", err)
+		panic(err) // Empty config is valid, this error should never occur.
 	}
 
-	db, err := tsdb.Open(
-		dataPath,
-		p.logger.With("collector.prometheus", "tsdb"),
-		registry,
-		tsdb.DefaultOptions(),
-		nil,
-	)
-	if err != nil {
-		return fmt.Errorf("error opening storage: %w", err)
-	}
-	defer func() {
-		if err != nil {
-			if dbErr := db.Close(); dbErr != nil {
-				p.logger.Error("Failed to close storage", "err", dbErr)
-			}
-		}
-	}()
-
-	scrapeManager, err := scrape.NewManager(
-		&scrape.Options{
-			// Need to set the reload interval to a small value to ensure that
-			// the scrape manager starts scraping immediately and not after 5
-			// seconds (default).
-			DiscoveryReloadInterval: model.Duration(time.Millisecond * 100),
-		},
-		p.logger.With("collector.prometheus", "scrape manager"),
-		nil,
-		db,
-		registry,
-	)
-	if err != nil {
-		return fmt.Errorf("error creating scrape manager: %w", err)
-	}
-
-	promCfg, err := config.Load("", p.logger)
-	if err != nil {
-		return fmt.Errorf("error loading config: %w", err)
-	}
-
-	promCfg.GlobalConfig.ScrapeInterval = model.Duration(p.cfg.ScrapeInterval)
-	promCfg.GlobalConfig.ScrapeTimeout = model.Duration(p.cfg.ScrapeInterval)
+	promCfg.GlobalConfig.ScrapeInterval = model.Duration(cfg.ScrapeInterval)
+	promCfg.GlobalConfig.ScrapeTimeout = model.Duration(cfg.ScrapeInterval)
 
 	scrapeCfg := config.DefaultScrapeConfig
 	scrapeCfg.JobName = "benchi"
@@ -158,17 +163,65 @@ func (p *Collector) Configure(settings map[string]any) (err error) {
 	scrapeCfg.ScrapeTimeout = promCfg.GlobalConfig.ScrapeTimeout
 
 	promCfg.ScrapeConfigs = append(promCfg.ScrapeConfigs, &scrapeCfg)
+	return promCfg
+}
+
+func (c *Collector) initTsdb(registry *prometheus.Registry) (*tsdb.DB, func(), error) {
+	dataPath, err := os.MkdirTemp("", fmt.Sprintf("*-benchi-prometheus-%s", c.Name()))
+	if err != nil {
+		return nil, nil, fmt.Errorf("error creating temporary directory: %w", err)
+	}
+
+	db, err := tsdb.Open(
+		dataPath,
+		c.logger.With("collector.prometheus", "tsdb"),
+		registry,
+		tsdb.DefaultOptions(),
+		nil,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error opening storage: %w", err)
+	}
+	return db, func() {
+		if err != nil {
+			if dbErr := db.Close(); dbErr != nil {
+				c.logger.Error("Failed to close storage", "err", dbErr)
+			}
+		}
+	}, nil
+}
+
+func (c *Collector) initScrapeManager(registry *prometheus.Registry, promCfg *config.Config, db storage.Appendable) (*scrape.Manager, error) {
+	scrapeManager, err := scrape.NewManager(
+		&scrape.Options{
+			// Need to set the reload interval to a small value to ensure that
+			// the scrape manager starts scraping immediately and not after 5
+			// seconds (default).
+			DiscoveryReloadInterval: model.Duration(time.Millisecond * 100),
+		},
+		c.logger.With("collector.prometheus", "scrape manager"),
+		nil,
+		db,
+		registry,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error creating scrape manager: %w", err)
+	}
 
 	err = scrapeManager.ApplyConfig(promCfg)
 	if err != nil {
-		return fmt.Errorf("error applying config: %w", err)
+		return nil, fmt.Errorf("error applying config: %w", err)
 	}
 
+	return scrapeManager, nil
+}
+
+func (c *Collector) initPromqlEngine(registry *prometheus.Registry, cfg Config, promCfg *config.Config) *promql.Engine {
 	promqlEngineOpts := promql.EngineOpts{
-		Logger:             p.logger.With("collector.prometheus", "query engine"),
+		Logger:             c.logger.With("collector.prometheus", "query engine"),
 		Reg:                registry,
 		MaxSamples:         50000000,
-		Timeout:            p.cfg.ScrapeInterval*5 + time.Second,
+		Timeout:            cfg.ScrapeInterval*5 + time.Second,
 		ActiveQueryTracker: NewSequentialQueryTracker(),
 		NoStepSubqueryIntervalFn: func(_ int64) int64 {
 			return int64(time.Duration(promCfg.GlobalConfig.EvaluationInterval) / time.Millisecond)
@@ -181,10 +234,13 @@ func (p *Collector) Configure(settings map[string]any) (err error) {
 	}
 
 	promqlEngine := promql.NewEngine(promqlEngineOpts)
-	promqlEngine.SetQueryLogger(QueryLogger{p.logger.Handler()})
+	promqlEngine.SetQueryLogger(QueryLogger{c.logger.Handler()})
 
-	p.results = make(map[string]promql.Matrix)
-	for _, queryCfg := range p.cfg.Queries {
+	return promqlEngine
+}
+
+func (c *Collector) validateQueries(promqlEngine *promql.Engine, db storage.Queryable, queries []QueryConfig) error {
+	for _, queryCfg := range queries {
 		// Check that the query is valid.
 		now := time.Now()
 		q, err := promqlEngine.NewRangeQuery(
@@ -201,22 +257,15 @@ func (p *Collector) Configure(settings map[string]any) (err error) {
 		}
 		q.Cancel()
 		q.Close()
-
-		p.results[queryCfg.Name] = nil
 	}
-
-	p.tsdb = db
-	p.scrapeManager = scrapeManager
-	p.promqlEngine = promqlEngine
-
 	return nil
 }
 
-func (p *Collector) Run(ctx context.Context) error {
-	p.runStart = time.Now()
+func (c *Collector) Run(ctx context.Context) error {
+	c.runStart = time.Now()
 
 	// Ignore parsing error, we validated it in Configure.
-	targetURL, _ := p.cfg.parseURL()
+	targetURL, _ := c.cfg.parseURL()
 
 	labels := model.LabelSet{
 		model.AddressLabel:     model.LabelValue(targetURL.Host),
@@ -237,15 +286,15 @@ func (p *Collector) Run(ctx context.Context) error {
 
 	wg := pool.New().WithErrors().WithContext(ctx).WithCancelOnError()
 	wg.Go(func(context.Context) error {
-		return p.scrapeManager.Run(ch)
+		return c.scrapeManager.Run(ch)
 	})
 	wg.Go(func(ctx context.Context) error {
 		<-ctx.Done()
-		p.scrapeManager.Stop()
+		c.scrapeManager.Stop()
 		return nil
 	})
 	wg.Go(func(ctx context.Context) error {
-		ticker := time.NewTicker(p.cfg.ScrapeInterval)
+		ticker := time.NewTicker(c.cfg.ScrapeInterval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -255,7 +304,7 @@ func (p *Collector) Run(ctx context.Context) error {
 			}
 
 			// TODO loop over all queries
-			err := p.execQuery(ctx, p.cfg.Queries[0])
+			err := c.execQuery(ctx, c.cfg.Queries[0])
 			if err != nil {
 				return fmt.Errorf("error executing prometheus query: %w", err)
 			}
@@ -264,26 +313,26 @@ func (p *Collector) Run(ctx context.Context) error {
 
 	err := wg.Wait()
 
-	if err := p.promqlEngine.Close(); err != nil {
-		p.logger.Error("Failed to close Prometheus query engine", "error", err)
+	if err := c.promqlEngine.Close(); err != nil {
+		c.logger.Error("Failed to close Prometheus query engine", "error", err)
 	}
-	if err := p.tsdb.Close(); err != nil {
-		p.logger.Error("Failed to close Prometheus storage", "error", err)
+	if err := c.tsdb.Close(); err != nil {
+		c.logger.Error("Failed to close Prometheus storage", "error", err)
 	}
 
-	return err
+	return err //nolint:wrapcheck // Errors are wrapped inside the goroutines.
 }
 
 // execQuery executes the query and sends the result to the output channel.
 // It returns the query object so that it can be closed when the next query is
 // executed.
-func (p *Collector) execQuery(ctx context.Context, queryCfg QueryConfig) error {
-	q, err := p.promqlEngine.NewRangeQuery(
+func (c *Collector) execQuery(ctx context.Context, queryCfg QueryConfig) error {
+	q, err := c.promqlEngine.NewRangeQuery(
 		ctx,
-		p.tsdb,
+		c.tsdb,
 		promql.NewPrometheusQueryOpts(false, 0),
 		queryCfg.QueryString,
-		p.runStart,
+		c.runStart,
 		time.Now(),
 		queryCfg.Interval,
 	)
@@ -300,25 +349,25 @@ func (p *Collector) execQuery(ctx context.Context, queryCfg QueryConfig) error {
 		return fmt.Errorf("error fetching result matrix: %w", r.Err)
 	}
 	if len(m) == 0 {
-		p.logger.Debug("No data returned from query")
+		c.logger.Debug("No data returned from query")
 		return nil
 	}
 	if len(m) > 1 {
 		// TODO add support for multiple series
-		p.logger.Warn("Query returned multiple series, only first will be used", "series-count", len(m))
+		c.logger.Warn("Query returned multiple series, only first will be used", "series-count", len(m))
 		m = m[:1]
 	}
 
-	p.logger.Debug("Query returned data", "series-count", len(m))
+	c.logger.Debug("Query returned data", "series-count", len(m))
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.results[queryCfg.Name] = m
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.results[queryCfg.Name] = m
 
 	return nil
 }
 
-func (p *Collector) promqlMatrixToMetrics(m promql.Matrix) []metrics.Metric {
+func (c *Collector) promqlMatrixToMetrics(m promql.Matrix) []metrics.Metric {
 	if len(m) == 0 {
 		return nil
 	}

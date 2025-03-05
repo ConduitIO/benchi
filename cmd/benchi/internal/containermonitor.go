@@ -27,6 +27,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/errdefs"
 )
@@ -42,27 +43,29 @@ var (
 
 type ContainerMonitorModel struct {
 	id         int32
+	logger     *slog.Logger
 	ctx        context.Context
 	client     client.APIClient
 	interval   time.Duration
-	containers []types.ContainerJSON
+	containers []container.InspectResponse
 }
 
 // containerMonitorModelID serves as a unique id generator for ContainerMonitorModel.
 var containerMonitorModelID atomic.Int32
 
 type ContainerMonitorModelMsg struct {
-	containers []types.ContainerJSON
+	containers []container.InspectResponse
 	id         int32
 }
 
 func NewContainerMonitorModel(ctx context.Context, client client.APIClient, containerNames []string) ContainerMonitorModel {
-	containers := make([]types.ContainerJSON, len(containerNames))
+	containers := make([]container.InspectResponse, len(containerNames))
 	for i, name := range containerNames {
-		containers[i] = types.ContainerJSON{ContainerJSONBase: &types.ContainerJSONBase{Name: name}}
+		containers[i] = container.InspectResponse{ContainerJSONBase: &container.ContainerJSONBase{Name: name}}
 	}
 	return ContainerMonitorModel{
 		id:         containerMonitorModelID.Add(1),
+		logger:     slog.Default().With("model", "container-monitor"),
 		ctx:        ctx,
 		client:     client,
 		containers: containers,
@@ -131,15 +134,15 @@ func (m ContainerMonitorModel) scheduleRefreshCmd() tea.Cmd {
 	return tea.Tick(m.interval, func(time.Time) tea.Msg {
 		containersTmp := slices.Clone(m.containers)
 		for i, c := range containersTmp {
-			slog.Debug("Inspecting container", "name", c.Name)
+			m.logger.Debug("Inspecting container", "name", c.Name)
 			inspect, err := m.client.ContainerInspect(m.ctx, c.Name)
 			if err != nil {
 				if errdefs.IsNotFound(err) {
-					slog.Debug("Container not found", "name", c.Name)
+					m.logger.Debug("Container not found", "name", c.Name)
 				} else {
-					slog.Error("Failed to inspect container", "name", c.Name, "error", err)
+					m.logger.Error("Failed to inspect container", "name", c.Name, "error", err)
 				}
-				containersTmp[i] = types.ContainerJSON{ContainerJSONBase: &types.ContainerJSONBase{Name: c.Name}}
+				containersTmp[i] = container.InspectResponse{ContainerJSONBase: &container.ContainerJSONBase{Name: c.Name}}
 				continue
 			}
 			// Docker inspect returns the internal docker container name which

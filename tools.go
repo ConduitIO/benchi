@@ -1,4 +1,4 @@
-// Copyright © 2025 Meroxa, Inc.
+// Copyright © 2023 Meroxa, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package conduit
+//go:build tools
 
-import "time"
+package main
 
-type Config struct {
-	// URL points to the metrics endpoint of the service to be monitored.
-	URL string `yaml:"url"`
-	// ScrapeInterval is the time between scrapes (defaults to 1s).
-	ScrapeInterval time.Duration `yaml:"scrape-interval"`
-}
+import (
+	_ "github.com/golangci/golangci-lint/cmd/golangci-lint"
+	_ "golang.org/x/tools/cmd/stringer"
+	_ "mvdan.cc/gofumpt"
+)

@@ -28,7 +28,7 @@ import (
 // Returns error if the compose command fails.
 func ComposeUp(ctx context.Context, composeOpt ComposeOptions, upOpt ComposeUpOptions) error {
 	cmd := upCmd(ctx, composeOpt, upOpt)
-	return execCmd(cmd)
+	return logAndRun(cmd)
 }
 
 // ComposeUpOptions represents the options for the up command.
@@ -64,8 +64,9 @@ type ComposeUpOptions struct {
 	Yes                     *bool    // -y, --y                            Assume "yes" as answer to all prompts and run non-interactively
 }
 
+//nolint:gocognit,funlen // It's just a bunch of flags, refactoring doesn't make sense.
 func (opt ComposeUpOptions) flags() []string {
-	var flags []string
+	var flags []string //nolint:prealloc // Keep it simple, no need to preallocate.
 	if opt.AbortOnContainerExit != nil && *opt.AbortOnContainerExit {
 		flags = append(flags, "--abort-on-container-exit")
 	}

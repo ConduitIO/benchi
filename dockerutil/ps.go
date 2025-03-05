@@ -27,7 +27,7 @@ import (
 // Returns error if the compose command fails.
 func ComposePs(ctx context.Context, composeOpt ComposeOptions, psOpt ComposePsOptions) error {
 	cmd := psCmd(ctx, composeOpt, psOpt)
-	return execCmd(cmd)
+	return logAndRun(cmd)
 }
 
 // ComposePsOptions represents the options for the ps command.
@@ -46,7 +46,7 @@ type ComposePsOptions struct {
 }
 
 func (opt ComposePsOptions) flags() []string {
-	var flags []string
+	var flags []string //nolint:prealloc // Keep it simple, no need to preallocate.
 	if opt.All != nil && *opt.All {
 		flags = append(flags, "--all")
 	}

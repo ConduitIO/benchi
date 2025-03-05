@@ -43,10 +43,9 @@ func (m ProgressTimerModel) Init() tea.Cmd {
 }
 
 func (m ProgressTimerModel) Update(msg tea.Msg) (ProgressTimerModel, tea.Cmd) {
-	switch msg := msg.(type) {
-	case timer.TickMsg:
+	if tickMsg, ok := msg.(timer.TickMsg); ok {
 		var cmd tea.Cmd
-		m.timer, cmd = m.timer.Update(msg)
+		m.timer, cmd = m.timer.Update(tickMsg)
 		return m, cmd
 	}
 	return m, nil

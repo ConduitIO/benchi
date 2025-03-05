@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -26,17 +27,16 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/conduitio/benchi/config"
 	"github.com/conduitio/benchi/dockerutil"
 	"github.com/conduitio/benchi/metrics"
+	"github.com/conduitio/benchi/metrics/conduit"
+	"github.com/conduitio/benchi/metrics/prometheus"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/errdefs"
 	"github.com/sourcegraph/conc/pool"
-
-	_ "github.com/conduitio/benchi/metrics/conduit"
-	_ "github.com/conduitio/benchi/metrics/prometheus"
 )
 
 const (
@@ -49,9 +49,6 @@ type TestRunners []*TestRunner
 type TestRunnerOptions struct {
 	// ResultsDir is the directory where the test results are stored.
 	ResultsDir string
-	// StartedAt is the time when the test was started. All test results are
-	// stored in a subdirectory that includes this time in the name.
-	StartedAt time.Time
 	// FilterTests is a list of test names to run. If empty, all tests are run.
 	FilterTests []string
 	// FilterTools is a list of tool names to run. If empty, all tools are run.
@@ -60,7 +57,12 @@ type TestRunnerOptions struct {
 	DockerClient client.APIClient
 }
 
+//nolint:funlen,gocognit // It's a bit longer, but still readable.
 func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) (TestRunners, error) {
+	// Register metrics collectors
+	conduit.Register()
+	prometheus.Register()
+
 	runs := make(TestRunners, 0, len(cfg.Tests)*len(cfg.Tools))
 
 	for _, t := range cfg.Tests {
@@ -79,6 +81,15 @@ func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) (TestRunners, er
 			infra = append(infra, v)
 		}
 
+		var infraContainers []string
+		if len(infra) > 0 {
+			var err error
+			infraContainers, err = findContainerNames(context.Background(), collectDockerComposeFiles(infra))
+			if err != nil {
+				return nil, fmt.Errorf("failed to find infrastructure container names: %w", err)
+			}
+		}
+
 		toolNames := slices.Collect(maps.Keys(cfg.Tools))
 		for k := range t.Tools {
 			if _, ok := cfg.Tools[k]; !ok {
@@ -88,7 +99,7 @@ func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) (TestRunners, er
 		slices.Sort(toolNames)
 
 		for _, tool := range toolNames {
-			logger = logger.With("tool", tool)
+			logger := logger.With("tool", tool)
 
 			if len(opt.FilterTools) > 0 && !slices.Contains(opt.FilterTools, tool) {
 				logger.Info("Skipping tool")
@@ -106,6 +117,15 @@ func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) (TestRunners, er
 				toolCfg, ok := t.Tools[tool]
 				if ok {
 					tools = append(tools, toolCfg)
+				}
+			}
+
+			var toolContainers []string
+			if len(tools) > 0 {
+				var err error
+				toolContainers, err = findContainerNames(context.Background(), collectDockerComposeFiles(tools))
+				if err != nil {
+					return nil, fmt.Errorf("failed to find tool container names: %w", err)
 				}
 			}
 
@@ -132,12 +152,15 @@ func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) (TestRunners, er
 				tools:          tools,
 				collectors:     collectors,
 
+				infrastructureContainers: infraContainers,
+				toolContainers:           toolContainers,
+
 				name:     t.Name,
 				duration: t.Duration,
 				hooks:    t.Steps,
 
 				tool:         tool,
-				resultsDir:   filepath.Join(opt.ResultsDir, fmt.Sprintf("%s_%s_%s", opt.StartedAt.Format("20060102150405"), t.Name, tool)),
+				resultsDir:   filepath.Join(opt.ResultsDir, fmt.Sprintf("%s_%s", t.Name, tool)),
 				dockerClient: opt.DockerClient,
 
 				logger: logger,
@@ -148,6 +171,52 @@ func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) (TestRunners, er
 	return runs, nil
 }
 
+func findContainerNames(ctx context.Context, files []string) ([]string, error) {
+	var buf bytes.Buffer
+	err := dockerutil.ComposeConfig(
+		ctx,
+		dockerutil.ComposeOptions{
+			File:   files,
+			Stdout: &buf,
+			Stderr: &buf,
+		},
+		dockerutil.ComposeConfigOptions{
+			Format: ptr("json"),
+		},
+	)
+	if err != nil {
+		slog.Error("Failed to run docker compose config", "output", buf.String())
+		return nil, fmt.Errorf("failed to parse compose files: %w", err)
+	}
+
+	var cfg map[string]any
+	err = json.NewDecoder(&buf).Decode(&cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse compose config: %w", err)
+	}
+
+	services, ok := cfg["services"].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("services not found in compose config")
+	}
+
+	containers := make([]string, 0, len(services))
+	for name, srv := range services {
+		srvMap, ok := srv.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("service %s is not a map", name)
+		}
+		containerName, ok := srvMap["container_name"].(string)
+		if !ok || containerName == "" {
+			containerName = name
+		}
+		containers = append(containers, containerName)
+	}
+	slices.Sort(containers)
+
+	return containers, nil
+}
+
 // TestRunner is a single test run for a single tool.
 type TestRunner struct {
 	step Step
@@ -155,6 +224,9 @@ type TestRunner struct {
 	infrastructure []config.ServiceConfig
 	tools          []config.ServiceConfig
 	collectors     []metrics.Collector
+
+	infrastructureContainers []string
+	toolContainers           []string
 
 	name     string
 	duration time.Duration
@@ -204,8 +276,16 @@ func (r *TestRunner) Infrastructure() []config.ServiceConfig {
 	return r.infrastructure
 }
 
+func (r *TestRunner) InfrastructureContainers() []string {
+	return r.infrastructureContainers
+}
+
 func (r *TestRunner) Tools() []config.ServiceConfig {
 	return r.tools
+}
+
+func (r *TestRunner) ToolContainers() []string {
+	return r.toolContainers
 }
 
 func (r *TestRunner) Collectors() []metrics.Collector {
@@ -293,7 +373,7 @@ func (r *TestRunner) runInfrastructure(ctx context.Context) (err error) {
 	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
-	paths := r.collectDockerComposeFiles(r.infrastructure)
+	paths := collectDockerComposeFiles(r.infrastructure)
 	if len(paths) == 0 {
 		logger.Info("No infrastructure to start")
 		return nil
@@ -301,7 +381,7 @@ func (r *TestRunner) runInfrastructure(ctx context.Context) (err error) {
 
 	logPath := filepath.Join(r.resultsDir, "infrastructure.log")
 
-	err = r.dockerComposeUpWait(ctx, logger, paths, logPath)
+	err = r.dockerComposeUpWait(ctx, logger, paths, r.infrastructureContainers, logPath)
 	if err != nil {
 		return fmt.Errorf("failed to start infrastructure: %w", err)
 	}
@@ -328,7 +408,7 @@ func (r *TestRunner) runTool(ctx context.Context) (err error) {
 	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
-	paths := r.collectDockerComposeFiles(r.tools)
+	paths := collectDockerComposeFiles(r.tools)
 	if len(paths) == 0 {
 		logger.Info("No tools to start")
 		return nil
@@ -336,7 +416,7 @@ func (r *TestRunner) runTool(ctx context.Context) (err error) {
 
 	logPath := filepath.Join(r.resultsDir, "tools.log")
 
-	err = r.dockerComposeUpWait(ctx, logger, paths, logPath)
+	err = r.dockerComposeUpWait(ctx, logger, paths, r.toolContainers, logPath)
 	if err != nil {
 		return fmt.Errorf("failed to start tools: %w", err)
 	}
@@ -384,7 +464,7 @@ func (r *TestRunner) runTest(ctx context.Context) (err error) {
 		defer logTicker.Stop()
 
 		for {
-			logger.Info("Test in progress", "time-left", endTestAt.Sub(time.Now()).Truncate(time.Second))
+			logger.Info("Test in progress", "time-left", time.Until(endTestAt).Truncate(time.Second))
 			select {
 			case <-ctx.Done():
 				if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -397,7 +477,23 @@ func (r *TestRunner) runTest(ctx context.Context) (err error) {
 		}
 	})
 
-	// TODO during
+	if len(r.hooks.During) > 0 {
+		// Special case: we run all hooks during the test in parallel.
+		logger.Debug("Running hooks", "count", len(r.hooks.During))
+		for _, hook := range r.hooks.During {
+			if len(hook.Tools) > 0 && !slices.Contains(hook.Tools, r.tool) {
+				logger.Debug("Skipping hook", "hook", hook.Name, "tools", hook.Tools)
+				continue
+			}
+			wg.Go(func(ctx context.Context) error {
+				err := r.runHook(ctx, logger, hook)
+				if err != nil {
+					return fmt.Errorf("failed to run hook %q in step %s: %w", hook.Name, r.step, err)
+				}
+				return nil
+			})
+		}
+	}
 
 	err = wg.Wait()
 	if errors.Is(err, context.DeadlineExceeded) {
@@ -438,9 +534,9 @@ func (r *TestRunner) runCleanup(ctx context.Context) (err error) {
 	_, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
-	var errs []error
-	for _, fn := range slices.Backward(r.cleanupFns) {
-		errs = append(errs, fn(ctx))
+	errs := make([]error, len(r.cleanupFns))
+	for i, fn := range slices.Backward(r.cleanupFns) {
+		errs[i] = fn(ctx)
 	}
 	return errors.Join(errs...)
 }
@@ -453,14 +549,6 @@ func (r *TestRunner) runPostCleanup(ctx context.Context) (err error) {
 }
 
 // -- UTILS --------------------------------------------------------------------
-
-func (r *TestRunner) collectDockerComposeFiles(cfgs []config.ServiceConfig) []string {
-	paths := make([]string, len(cfgs))
-	for i, cfg := range cfgs {
-		paths[i] = cfg.DockerCompose
-	}
-	return paths
-}
 
 // prepareStep returns a logger for the given step name and a function that
 // logs the result of the step. The function should be deferred.
@@ -488,37 +576,23 @@ func (r *TestRunner) nextStep(s Step, err error) Step {
 	return s + 1
 }
 
+//nolint:funlen // It's a bit long, but still readable.
 func (r *TestRunner) dockerComposeUpWait(
 	ctx context.Context,
 	logger *slog.Logger,
 	dockerComposeFiles []string,
+	containers []string,
 	logPath string,
 ) error {
 	f, err := os.Create(logPath)
 	if err != nil {
 		return fmt.Errorf("failed to create log file: %w", err)
 	}
+
 	// Close file in cleanup
-	r.cleanupFns = append(r.cleanupFns, func(ctx context.Context) error {
+	r.cleanupFns = append(r.cleanupFns, func(context.Context) error {
 		return f.Close()
 	})
-
-	var composeUpErr atomic.Pointer[error]
-	go func() {
-		err := dockerutil.ComposeUp(
-			ctx,
-			dockerutil.ComposeOptions{
-				File:   dockerComposeFiles,
-				Stdout: f,
-				Stderr: f,
-			},
-			dockerutil.ComposeUpOptions{},
-		)
-		if err != nil && !errors.Is(err, context.Canceled) {
-			composeUpErr.Store(&err)
-			slog.Error("docker compose up failed", "error", err)
-		}
-	}()
 
 	r.cleanupFns = append(r.cleanupFns, func(ctx context.Context) error {
 		logger.Info("Stopping containers")
@@ -531,88 +605,91 @@ func (r *TestRunner) dockerComposeUpWait(
 		)
 	})
 
-	logger.Info("Waiting for containers to start")
-	var containers []string
+	// We create a context deadline of 5 minutes here, since we expect any
+	// service to start in that time and we want to prevent the test from
+	// running indefinitely.
+	// We also use a context with cancel cause to be able to cancel the context
+	// with a specific error in the compose up goroutine, which will continue
+	// to run if all goes well.
+	monitorCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	//nolint:govet // The cancel function is called in the defer above.
+	monitorCtx, _ = context.WithTimeout(monitorCtx, time.Minute*5)
 
-	for range 30 {
+	go func() {
+		err := dockerutil.ComposeUp(
+			// Note: we use the original context here, not the monitor context,
+			// since we want this goroutine to keep running if all goes well.
+			ctx,
+			dockerutil.ComposeOptions{
+				File:   dockerComposeFiles,
+				Stdout: f,
+				Stderr: f,
+			},
+			dockerutil.ComposeUpOptions{},
+		)
+		if err != nil {
+			slog.Error("Docker compose up failed", "error", err)
+			cancel(fmt.Errorf("docker compose up failed: %w", err))
+		}
+	}()
+
+	wg := pool.New().WithErrors().WithContext(monitorCtx).WithCancelOnError()
+
+	for _, c := range containers {
+		wg.Go(func(ctx context.Context) error { return r.ensureContainerHealthy(ctx, logger, c) })
+	}
+
+	err = wg.Wait()
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			// Check if there is a cause, that would be the error from the
+			// compose up goroutine.
+			err = context.Cause(monitorCtx)
+		}
+		return fmt.Errorf("failed to start containers: %w", err)
+	}
+
+	return nil
+}
+
+func (r *TestRunner) ensureContainerHealthy(ctx context.Context, logger *slog.Logger, container string) error {
+	lastStatus := "N/A"
+	for {
+		logger.Info("Waiting for container status to be healthy", "container", container, "status", lastStatus)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(time.Second):
 		}
 
-		var buf bytes.Buffer
-		err = dockerutil.ComposePs(
-			ctx,
-			dockerutil.ComposeOptions{
-				File:   dockerComposeFiles,
-				Stdout: &buf,
-			},
-			dockerutil.ComposePsOptions{
-				Quiet: ptr(true),
-			},
-		)
+		resp, err := r.dockerClient.ContainerInspect(ctx, container)
 		if err != nil {
-			return fmt.Errorf("failed to list containers: %w", err)
-		}
-		containers = strings.Fields(buf.String())
-		if len(containers) > 0 {
-			break
-		}
-	}
-
-	logger.Info(fmt.Sprintf("Identified %d containers", len(containers)))
-	if err := composeUpErr.Load(); err != nil && *err != nil {
-		return fmt.Errorf("failed to start containers: %w", *err)
-	}
-
-	// We create a context deadline of 5 minutes here, since we expect any
-	// service to start
-	//  the docker compose file. But maybe a long timeout would be good, to be safe.
-	ctx, cancel := context.WithTimeout(ctx, time.Minute*5)
-	defer cancel()
-
-	wg := pool.New().WithErrors()
-	for _, c := range containers {
-		wg.Go(func() error {
-			for {
-				resp, err := r.dockerClient.ContainerInspect(ctx, c)
-				if err != nil {
-					return err
-				}
-				logger.Debug("Inspected container", "container", c, "response", resp, "state", *resp.State)
-
-				switch {
-				case resp.State.Dead || (!resp.State.Running && resp.State.ExitCode != 0):
-					return fmt.Errorf("container %s is dead (exit code: %d, error: %q)", resp.Name, resp.State.ExitCode, resp.State.Error)
-				case !resp.State.Running && resp.State.ExitCode == 0:
-					logger.Warn("Container exited with code 0 (assuming it's an init container)", "container", resp.Name)
-					return nil
-				case resp.State.Health != nil && strings.EqualFold(resp.State.Health.Status, "healthy"):
-					logger.Info("Container is healthy", "container", resp.Name)
-					return nil
-				case resp.State.Health == nil && resp.State.Running:
-					logger.Info("Container is running (consider adding a health check!)", "container", resp.Name)
-					return nil
-				}
-
-				logger.Info("Waiting for container status to be healthy", "container", resp.Name, "status", resp.State.Health.Status)
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-time.After(time.Second):
-				}
+			if errdefs.IsNotFound(err) {
+				lastStatus = "N/A"
+				slog.Debug("Container not found (probably still being created)", "name", container)
 				continue
 			}
-		})
-	}
+			return fmt.Errorf("failed to inspect container %s: %w", container, err)
+		}
+		logger.Debug("Inspected container", "container", container, "response", resp, "state", *resp.State)
 
-	err = wg.Wait()
-	if err != nil {
-		return fmt.Errorf("failed to start containers: %w", err)
-	}
+		switch {
+		case resp.State.Dead || (!resp.State.Running && resp.State.ExitCode != 0):
+			return fmt.Errorf("container %s is dead (exit code: %d, error: %q)", resp.Name, resp.State.ExitCode, resp.State.Error)
+		case !resp.State.Running && resp.State.ExitCode == 0:
+			logger.Warn("Container exited with code 0 (assuming it's an init container)", "container", resp.Name)
+			return nil
+		case resp.State.Health != nil && strings.EqualFold(resp.State.Health.Status, "healthy"):
+			logger.Info("Container is healthy", "container", resp.Name)
+			return nil
+		case resp.State.Health == nil && resp.State.Running:
+			logger.Info("Container is running (consider adding a health check!)", "container", resp.Name)
+			return nil
+		}
 
-	return nil
+		lastStatus = resp.State.Health.Status
+	}
 }
 
 func (r *TestRunner) exportMetricsCSV(logger *slog.Logger, collector metrics.Collector) error {
@@ -646,10 +723,20 @@ func (r *TestRunner) exportMetricsCSV(logger *slog.Logger, collector metrics.Col
 	writer := csv.NewWriter(f)
 	err = writer.Write(header)
 	if err != nil {
-		return fmt.Errorf("error writing header: %w", err)
+		return fmt.Errorf("error writing CSV header: %w", err)
 	}
 
-	return writer.WriteAll(records)
+	err = writer.WriteAll(records)
+	if err != nil {
+		return fmt.Errorf("error writing CSV records: %w", err)
+	}
+
+	err = writer.Error()
+	if err != nil {
+		return fmt.Errorf("error writing CSV records: %w", err)
+	}
+
+	return nil
 }
 
 func (r *TestRunner) runHooks(ctx context.Context, logger *slog.Logger, hooks []config.TestHook) error {
@@ -661,7 +748,7 @@ func (r *TestRunner) runHooks(ctx context.Context, logger *slog.Logger, hooks []
 		}
 		err := r.runHook(ctx, logger, hook)
 		if err != nil {
-			return fmt.Errorf("failed to run hook %s:%s: %w", r.step, hook.Name, err)
+			return fmt.Errorf("failed to run hook %q in step %s: %w", hook.Name, r.step, err)
 		}
 	}
 	return nil
@@ -672,6 +759,7 @@ func (r *TestRunner) runHook(ctx context.Context, logger *slog.Logger, hook conf
 
 	if hook.Container != "" {
 		slog.Info("Running command in existing container", "container", hook.Container, "command", hook.Run)
+		//nolint:wrapcheck // The utility function is responsible for wrapping the error.
 		return dockerutil.RunInContainer(ctx, logger, hook.Container, hook.Run)
 	}
 	image := hook.Image
@@ -680,7 +768,16 @@ func (r *TestRunner) runHook(ctx context.Context, logger *slog.Logger, hook conf
 	}
 
 	logger.Info("Running command in temporary container", "image", image, "command", hook.Run)
+	//nolint:wrapcheck // The utility function is responsible for wrapping the error.
 	return dockerutil.RunInDockerNetwork(ctx, logger, image, NetworkName, hook.Run)
+}
+
+func collectDockerComposeFiles(cfgs []config.ServiceConfig) []string {
+	paths := make([]string, len(cfgs))
+	for i, cfg := range cfgs {
+		paths[i] = cfg.DockerCompose
+	}
+	return paths
 }
 
 func ptr[T any](v T) *T {

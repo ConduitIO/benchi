@@ -41,7 +41,7 @@ type ComposeOptions struct {
 }
 
 func (opt ComposeOptions) flags() []string {
-	var flags []string
+	var flags []string //nolint:prealloc // Keep it simple, no need to preallocate.
 	if opt.AllResources != nil && *opt.AllResources {
 		flags = append(flags, "--all-resources")
 	}
@@ -82,6 +82,7 @@ func composeCmd(ctx context.Context, composeOpt ComposeOptions) *exec.Cmd {
 	args := []string{"docker", "compose"}
 	args = append(args, composeOpt.flags()...)
 
+	//nolint:gosec // We control the command arguments.
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 
 	cmd.Stdin = composeOpt.Stdin

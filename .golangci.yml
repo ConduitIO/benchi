@@ -38,6 +38,9 @@ issues:
         - funlen
         - dupl
         - maintidx
+    - path: cmd/benchi/*
+      linters:
+        - containedctx
 
 linters:
   # please, do not use `enable-all`: it's deprecated and will be removed soon.

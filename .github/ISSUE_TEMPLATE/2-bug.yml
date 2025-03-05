@@ -1,0 +1,23 @@
+name: 🐛 Bug
+description: Report a bug.
+title: "Bug: <title>"
+labels: [bug, triage]
+body:
+- type: textarea
+  attributes:
+    label: Bug description
+    description: A concise description of what you're experiencing and what you expected to happen instead.
+  validations:
+    required: true
+- type: textarea
+  attributes:
+    label: Steps to reproduce
+    description: Steps to reproduce the behavior.
+  validations:
+    required: true
+- type: input
+  attributes:
+    label: Version
+    placeholder: v0.4.0
+  validations:
+    required: true
