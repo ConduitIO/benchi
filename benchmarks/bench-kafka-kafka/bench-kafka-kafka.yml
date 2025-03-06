@@ -15,6 +15,11 @@ metrics:
       - conduit
     settings:
       url: http://localhost:8080/metrics
+  kafka:
+    collector: kafka
+    settings:
+      url: http://localhost:7071/metrics
+      topics: ["benchi-out"]
 
 tests:
   - name: kafka-to-kafka

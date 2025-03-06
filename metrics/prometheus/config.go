@@ -48,4 +48,6 @@ type QueryConfig struct {
 	QueryString string `yaml:"query"`
 	// Interval is the query resolution.
 	Interval time.Duration `yaml:"interval"`
+	// Unit is the unit of the metric, only for display purposes (optional).
+	Unit string `yaml:"unit"`
 }

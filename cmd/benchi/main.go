@@ -548,8 +548,14 @@ func (m testModel) View() string {
 	s += "Metrics:\n"
 
 	indentStyle := lipgloss.NewStyle().PaddingLeft(2)
+
+	maxWidth := 0
 	for _, c := range m.collectorModels {
-		s += indentStyle.Render(c.View())
+		maxWidth = max(maxWidth, c.Width())
+	}
+	for _, c := range m.collectorModels {
+		s += indentStyle.Render(c.View(maxWidth + 2))
+		s += "\n"
 	}
 
 	return s

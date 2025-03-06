@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/conduitio/benchi/metrics"
-	"github.com/mitchellh/mapstructure"
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/config"
@@ -54,7 +54,7 @@ type Collector struct {
 	promqlEngine  *promql.Engine
 
 	mu      sync.Mutex
-	results map[string]promql.Matrix
+	results []metrics.Results
 }
 
 func NewCollector(logger *slog.Logger, name string) *Collector {
@@ -72,14 +72,12 @@ func (c *Collector) Type() string {
 	return Type
 }
 
-func (c *Collector) Metrics() map[string][]metrics.Metric {
-	out := make(map[string][]metrics.Metric)
-
+func (c *Collector) Results() []metrics.Results {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	for name, m := range c.results {
-		out[name] = c.promqlMatrixToMetrics(m)
-	}
+
+	out := make([]metrics.Results, len(c.results))
+	copy(out, c.results)
 	return out
 }
 
@@ -113,9 +111,10 @@ func (c *Collector) Configure(settings map[string]any) (err error) {
 	c.tsdb = db
 	c.scrapeManager = scrapeManager
 	c.promqlEngine = promqlEngine
-	c.results = make(map[string]promql.Matrix)
-	for _, queryCfg := range cfg.Queries {
-		c.results[queryCfg.Name] = nil
+	c.results = make([]metrics.Results, len(cfg.Queries))
+	for i := range c.results {
+		c.results[i].Name = cfg.Queries[i].Name
+		c.results[i].Unit = cfg.Queries[i].Unit
 	}
 
 	return nil
@@ -303,10 +302,14 @@ func (c *Collector) Run(ctx context.Context) error {
 			case <-ticker.C:
 			}
 
-			// TODO loop over all queries
-			err := c.execQuery(ctx, c.cfg.Queries[0])
-			if err != nil {
-				return fmt.Errorf("error executing prometheus query: %w", err)
+			for i, queryCfg := range c.cfg.Queries {
+				samples, err := c.execQuery(ctx, queryCfg)
+				if err != nil {
+					return fmt.Errorf("error executing prometheus query: %w", err)
+				}
+				c.mu.Lock()
+				c.results[i].Samples = samples
+				c.mu.Unlock()
 			}
 		}
 	})
@@ -326,7 +329,7 @@ func (c *Collector) Run(ctx context.Context) error {
 // execQuery executes the query and sends the result to the output channel.
 // It returns the query object so that it can be closed when the next query is
 // executed.
-func (c *Collector) execQuery(ctx context.Context, queryCfg QueryConfig) error {
+func (c *Collector) execQuery(ctx context.Context, queryCfg QueryConfig) ([]metrics.Sample, error) {
 	q, err := c.promqlEngine.NewRangeQuery(
 		ctx,
 		c.tsdb,
@@ -337,20 +340,20 @@ func (c *Collector) execQuery(ctx context.Context, queryCfg QueryConfig) error {
 		queryCfg.Interval,
 	)
 	if err != nil {
-		return fmt.Errorf("invalid query: %w", err)
+		return nil, fmt.Errorf("invalid query: %w", err)
 	}
 	r := q.Exec(ctx)
 	if r.Err != nil {
-		return fmt.Errorf("error executing query: %w", r.Err)
+		return nil, fmt.Errorf("error executing query: %w", r.Err)
 	}
 	defer q.Close()
 	m, err := r.Matrix()
 	if err != nil {
-		return fmt.Errorf("error fetching result matrix: %w", r.Err)
+		return nil, fmt.Errorf("error fetching result matrix: %w", r.Err)
 	}
 	if len(m) == 0 {
 		c.logger.Debug("No data returned from query")
-		return nil
+		return nil, nil
 	}
 	if len(m) > 1 {
 		// TODO add support for multiple series
@@ -358,23 +361,27 @@ func (c *Collector) execQuery(ctx context.Context, queryCfg QueryConfig) error {
 		m = m[:1]
 	}
 
-	c.logger.Debug("Query returned data", "series-count", len(m))
+	lastValue := 0.0
+	if len(m) > 0 {
+		floats := m[0].Floats
+		if len(floats) > 0 {
+			lastValue = floats[len(floats)-1].F
+		}
+	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.results[queryCfg.Name] = m
+	c.logger.Debug("Query returned data", "name", queryCfg.Name, "series-count", len(m), "last-value", lastValue)
 
-	return nil
+	return c.promqlMatrixToSamples(m), nil
 }
 
-func (c *Collector) promqlMatrixToMetrics(m promql.Matrix) []metrics.Metric {
+func (c *Collector) promqlMatrixToSamples(m promql.Matrix) []metrics.Sample {
 	if len(m) == 0 {
 		return nil
 	}
 	series := m[0] // TODO add support for multiple series
-	out := make([]metrics.Metric, len(series.Floats))
+	out := make([]metrics.Sample, len(series.Floats))
 	for i, sample := range series.Floats {
-		out[i] = metrics.Metric{
+		out[i] = metrics.Sample{
 			At:    time.UnixMilli(sample.T),
 			Value: sample.F,
 		}

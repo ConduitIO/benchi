@@ -30,8 +30,10 @@ type CollectorMonitorModel struct {
 	id int32
 	// collector is the metrics collector to monitor.
 	collector metrics.Collector
-	// samples to render.
-	samples map[string][]float64
+
+	// results collected by the collector.
+	results []metrics.Results
+
 	// numSamples is the number of samples to keep.
 	numSamples int
 	// interval is the time interval to refresh the model.
@@ -43,7 +45,7 @@ var collectorMonitorModelID atomic.Int32
 
 type CollectorMonitorModelMsg struct {
 	id      int32
-	samples map[string][]float64
+	results []metrics.Results
 }
 
 // NewCollectorMonitorModel creates a new CollectorMonitorModel.
@@ -51,7 +53,7 @@ func NewCollectorMonitorModel(collector metrics.Collector, numSamples int) Colle
 	return CollectorMonitorModel{
 		id:         collectorMonitorModelID.Add(1),
 		collector:  collector,
-		samples:    metricsToMap(collector.Metrics(), numSamples),
+		results:    collector.Results(),
 		numSamples: numSamples,
 		interval:   time.Second,
 	}
@@ -63,10 +65,10 @@ func (m CollectorMonitorModel) Init() tea.Cmd {
 
 func (m CollectorMonitorModel) scheduleRefreshCmd() tea.Cmd {
 	return tea.Tick(m.interval, func(time.Time) tea.Msg {
-		mm := m.collector.Metrics()
-		samples := metricsToMap(mm, m.numSamples)
-
-		return CollectorMonitorModelMsg{id: m.id, samples: samples}
+		return CollectorMonitorModelMsg{
+			id:      m.id,
+			results: m.collector.Results(),
+		}
 	})
 }
 
@@ -76,34 +78,40 @@ func (m CollectorMonitorModel) Update(msg tea.Msg) (CollectorMonitorModel, tea.C
 		return m, nil
 	}
 
-	m.samples = collectorMsg.samples
+	m.results = collectorMsg.results
 	return m, m.scheduleRefreshCmd()
 }
 
-// View renders the spark line.
-func (m CollectorMonitorModel) View() string {
-	s := ""
-	for name, samples := range m.samples {
-		s += fmt.Sprintf("- %s: %s: ", m.collector.Name(), name)
-		if len(samples) > 0 {
-			s += fmt.Sprintf("%.2f\t", samples[len(samples)-1])
-			s += sparkline(samples)
-		} else {
-			s += "N/A"
-		}
-
-		s += "\n"
+// Width returns the width of the longest metric (name, value and unit).
+func (m CollectorMonitorModel) Width() int {
+	width := 0
+	for _, results := range m.results {
+		w := len(displayMetricResults(m.collector.Name(), results))
+		width = max(w, width)
 	}
-	return s
+	return width
+}
+
+// View renders the spark line.
+func (m CollectorMonitorModel) View(width int) string {
+	s := ""
+	for _, results := range m.results {
+		text := displayMetricResults(m.collector.Name(), results)
+		graph := sparkline(results.Samples, m.numSamples)
+		s += fmt.Sprintf("%-*s %s\n", width, text, graph)
+	}
+	return strings.TrimSuffix(s, "\n")
 }
 
 var levels = []rune("▁▂▃▄▅▆▇█")
 
 // sparkline draws a sparkline from the given data.
-func sparkline(data []float64) string {
-	if len(data) == 0 {
+func sparkline(samples []metrics.Sample, lastN int) string {
+	if len(samples) == 0 {
 		return ""
 	}
+
+	data := samplesToFloatSlice(samples, lastN)
 	minSample := data[0]
 	maxSample := data[0]
 	for _, y := range data {
@@ -123,14 +131,24 @@ func sparkline(data []float64) string {
 	return string(line)
 }
 
-func metricsToMap(mm map[string][]metrics.Metric, size int) map[string][]float64 {
-	samples := make(map[string][]float64)
-	for name, metric := range mm {
-		l := min(size, len(metric))
-		samples[name] = make([]float64, l)
-		for i, m := range metric[len(metric)-l:] {
-			samples[name][i] = m.Value
-		}
+func samplesToFloatSlice(samples []metrics.Sample, lastN int) []float64 {
+	l := min(lastN, len(samples))
+	floats := make([]float64, l)
+	for j, m := range samples[len(samples)-l:] {
+		floats[j] = m.Value
 	}
-	return samples
+	return floats
+}
+
+func displayMetricResults(collectorName string, results metrics.Results) string {
+	s := fmt.Sprintf("- %s: %s: ", collectorName, results.Name)
+	if len(results.Samples) > 0 {
+		s += fmt.Sprintf("%.2f", results.Samples[len(results.Samples)-1].Value)
+		if results.Unit != "" {
+			s += " " + results.Unit
+		}
+	} else {
+		s += "N/A"
+	}
+	return s
 }
