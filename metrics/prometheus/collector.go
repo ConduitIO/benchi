@@ -301,7 +301,6 @@ func (c *Collector) Run(ctx context.Context) error {
 				return nil
 			case <-ticker.C:
 			}
-
 			for i, queryCfg := range c.cfg.Queries {
 				samples, err := c.execQuery(ctx, queryCfg)
 				if err != nil {

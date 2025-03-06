@@ -68,11 +68,12 @@ func (c *Collector) Configure(settings map[string]any) error {
 	}
 
 	if settings["queries"] != nil {
-		queries = append(queries, settings["queries"].([]map[string]any)...)
+		settingsQueries, ok := settings["queries"].([]map[string]any)
+		if ok {
+			queries = append(queries, settingsQueries...)
+		}
 	}
-	if queries != nil {
-		settings["queries"] = queries
-	}
+	settings["queries"] = queries
 
 	//nolint:wrapcheck // The prometheus collector is responsible for wrapping the error.
 	return c.Collector.Configure(settings)
