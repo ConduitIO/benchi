@@ -53,9 +53,9 @@ func (c *Collector) Configure(settings map[string]any) error {
 	for _, topic := range cfg.Topics {
 		queries = append(queries, []map[string]any{
 			{
-				"name":     fmt.Sprintf("msg-bytes-per-second[%s]", topic),
-				"query":    fmt.Sprintf("rate(kafka_server_total_bytes_in_per_sec_per_topic{topic=%q}[2s])", topic),
-				"unit":     "B/s",
+				"name":     fmt.Sprintf("msg-megabytes-per-second[%s]", topic),
+				"query":    fmt.Sprintf("rate(kafka_server_total_bytes_in_per_sec_per_topic{topic=%q}[2s])/1048576", topic),
+				"unit":     "MB/s",
 				"interval": "1s",
 			},
 			{
