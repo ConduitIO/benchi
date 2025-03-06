@@ -20,7 +20,7 @@ pipelines:
           plugin: builtin:kafka
           name: kafka-destination
           settings:
-            servers: "benchi-kafka:9092"
+            servers: "benchi-kafka:29092"
             topic: destination-topic
             compression: "none"
             sdk.batch.size: 10000
