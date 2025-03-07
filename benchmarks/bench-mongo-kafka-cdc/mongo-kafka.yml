@@ -34,7 +34,7 @@ metrics:
 
 tests:
   - name: mongo-to-kafka
-    duration: 2m
+    duration: 3m
 
     tools:
       conduit:
