@@ -7,6 +7,8 @@ create isolated environments for running benchmarks and collecting metrics.
 It was developed to simplify the process of setting up and running benchmarks
 for [Conduit](https://github.com/ConduitIO/conduit).
 
+![demo](https://github.com/user-attachments/assets/0a771d11-078c-4f9d-b14c-fb7e2efa6b07)
+
 ## Features
 
 - **Docker Integration**: Define and manage your benchmarking environments using
