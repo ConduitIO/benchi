@@ -7,9 +7,9 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.4
 	github.com/charmbracelet/lipgloss v1.0.0
 	github.com/docker/docker v28.0.1+incompatible
+	github.com/go-viper/mapstructure/v2 v2.2.1
 	github.com/golangci/golangci-lint v1.64.6
 	github.com/lmittmann/tint v1.0.7
-	github.com/mitchellh/mapstructure v1.5.0
 	github.com/prometheus/client_golang v1.21.1
 	github.com/prometheus/common v0.62.0
 	github.com/prometheus/prometheus v0.302.1
@@ -101,7 +101,6 @@ require (
 	github.com/go-toolsmith/astp v1.1.0 // indirect
 	github.com/go-toolsmith/strparse v1.1.0 // indirect
 	github.com/go-toolsmith/typep v1.1.0 // indirect
-	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/go-xmlfmt/xmlfmt v1.1.3 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/gofrs/flock v0.12.1 // indirect
@@ -164,6 +163,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/mgechev/revive v1.7.0 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
+	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moricho/tparallel v0.3.2 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
