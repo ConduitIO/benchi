@@ -17,6 +17,20 @@ metrics:
       - conduit
     settings:
       url: http://localhost:8080/metrics
+  kafka_metrics_for_conduit:
+    collector: kafka
+    tools:
+      - conduit
+    settings:
+      url: http://localhost:7071/metrics
+      topics: [ "destination-topic" ]
+  kafka_metrics_for_kafka_connect:
+    collector: kafka
+    tools:
+      - kafka-connect
+    settings:
+      url: http://localhost:7071/metrics
+      topics: [ "kafkaconnect.test.users" ]
 
 tests:
   - name: mongo-to-kafka
