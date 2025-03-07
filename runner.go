@@ -33,6 +33,7 @@ import (
 	"github.com/conduitio/benchi/dockerutil"
 	"github.com/conduitio/benchi/metrics"
 	"github.com/conduitio/benchi/metrics/conduit"
+	"github.com/conduitio/benchi/metrics/kafka"
 	"github.com/conduitio/benchi/metrics/prometheus"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/errdefs"
@@ -62,6 +63,7 @@ func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) (TestRunners, er
 	// Register metrics collectors
 	conduit.Register()
 	prometheus.Register()
+	kafka.Register()
 
 	runs := make(TestRunners, 0, len(cfg.Tests)*len(cfg.Tools))
 
@@ -704,13 +706,16 @@ func (r *TestRunner) exportMetricsCSV(logger *slog.Logger, collector metrics.Col
 
 	header := []string{"time"}
 
-	metricNames := slices.Collect(maps.Keys(collector.Metrics()))
-	slices.Sort(metricNames)
+	rr := collector.Results()
+	metricNames := make([]string, len(rr))
+	for i, result := range rr {
+		metricNames[i] = result.Name
+	}
 	header = append(header, metricNames...)
 
 	records := make([][]string, 0)
-	for col, name := range metricNames {
-		series := collector.Metrics()[name]
+	for col, results := range rr {
+		series := results.Samples
 		for i, sample := range series {
 			if len(records) <= i {
 				records = append(records, make([]string, len(metricNames)+1))

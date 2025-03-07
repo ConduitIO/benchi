@@ -32,12 +32,21 @@ type Collector interface {
 	// cancelled. The function should block until the context is cancelled, an
 	// error occurs, or the Stop function is called.
 	Run(ctx context.Context) error
-	// Metrics returns the collected metrics. If the collector is collecting
+	// Results returns the collected metrics. If the collector is collecting
 	// multiple metrics, the key should be the name of the metric.
-	Metrics() map[string][]Metric
+	Results() []Results
 }
 
-type Metric struct {
+type Results struct {
+	// Name is the name of the metric.
+	Name string
+	// Samples is a list of samples collected by the collector.
+	Samples []Sample
+	// Unit is the unit of the metric (optional).
+	Unit string
+}
+
+type Sample struct {
 	At    time.Time
 	Value float64
 }

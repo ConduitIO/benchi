@@ -12,13 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package conduit
-
-import "time"
+package kafka
 
 type Config struct {
-	// URL points to the metrics endpoint of the service to be monitored.
-	URL string `yaml:"url"`
-	// ScrapeInterval is the time between scrapes (defaults to 1s).
-	ScrapeInterval time.Duration `yaml:"scrape-interval"`
+	// Topics is a list of topics to monitor.
+	Topics []string `yaml:"topics"`
 }

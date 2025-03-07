@@ -42,6 +42,7 @@ func (c *Collector) Configure(settings map[string]any) error {
 		{
 			"name":     "msg-rate-per-second",
 			"query":    "rate(conduit_pipeline_execution_duration_seconds_count[2s])",
+			"unit":     "msg/s",
 			"interval": "1s",
 		},
 	}
