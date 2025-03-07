@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/conduitio/benchi/config"
@@ -58,12 +59,15 @@ type TestRunnerOptions struct {
 	DockerClient client.APIClient
 }
 
-//nolint:funlen,gocognit // It's a bit longer, but still readable.
-func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) (TestRunners, error) {
-	// Register metrics collectors
+var registerCollectorsOnce = sync.OnceFunc(func() {
 	conduit.Register()
 	prometheus.Register()
 	kafka.Register()
+})
+
+//nolint:funlen,gocognit // It's a bit longer, but still readable.
+func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) (TestRunners, error) {
+	registerCollectorsOnce()
 
 	runs := make(TestRunners, 0, len(cfg.Tests)*len(cfg.Tools))
 
