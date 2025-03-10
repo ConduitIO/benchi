@@ -73,7 +73,7 @@ tests:
             - kafka-connect
           container: "benchi-kafka-connect"
           run: |-
-            /scripts/create_started_pipeline.sh
+            /scripts/create_snapshot_pipeline.sh
       pre-test:
       during:
       post-test:
