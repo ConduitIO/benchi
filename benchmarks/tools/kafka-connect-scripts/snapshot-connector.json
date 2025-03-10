@@ -1,0 +1,24 @@
+{
+    "name": "kafka-connect-mongo",
+    "config":
+    {
+        "connector.class": "com.mongodb.kafka.connect.MongoSourceConnector",
+        "connection.uri": "mongodb://mongo1:30001,mongo2:30002,mongo3:30003/test?replicaSet=my-replica-set",
+        "database": "test",
+        "collection": "users",
+
+        "startup.mode": "copy_existing",
+        "change.stream.full.document": "updateLookup",
+
+        "output.schema.infer.value": "false",
+        "output.format.value": "json",
+        "output.format.key": "json",
+
+        "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+        "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+
+        "topic.prefix": "kafkaconnect",
+        "poll.await.time.ms": 5000,
+        "poll.max.batch.size": 1000
+    }
+}
