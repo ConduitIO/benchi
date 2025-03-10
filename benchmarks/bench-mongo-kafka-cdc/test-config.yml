@@ -86,7 +86,7 @@ tests:
             - kafka-connect
           container: "benchi-kafka-connect"
           run: |-
-            /scripts/start_pipeline.sh
+            /scripts/start_cdc_pipeline.sh
       pre-test:
       during:
       post-test:
