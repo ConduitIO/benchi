@@ -33,7 +33,7 @@ metrics:
       topics: [ "kafkaconnect.test.users" ]
 
 tests:
-  - name: mongo-to-kafka
+  - name: mongo-to-kafka-cdc
     duration: 3m
 
     tools:
