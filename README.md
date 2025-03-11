@@ -65,8 +65,8 @@ services:
       - benchi
 
 networks:
-    benchi:
-        external: true
+  benchi:
+    external: true
 ```
 
 ### Configuration
@@ -261,6 +261,9 @@ image to use for the temporary container. If neither `container` nor `image` is
 specified, the commands will run in a temporary container using the
 `alpine:latest` image.
 
+You can optionally configure the `tools` field to run a hook only for certain
+tools. If the field is not present or empty, the hook is applied for all tools.
+
 Example:
 
 ```yaml
@@ -285,6 +288,8 @@ tests:
         # script will receive a SIGINT signal when the test duration is over.
         - name: Run Load Test
           container: my-app
+          tools:
+            - my-app # Only run this hook when benchmarking my-app
           run: /scripts/run-load-test.sh
       post-test:
       pre-cleanup:
