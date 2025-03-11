@@ -47,6 +47,9 @@ var (
 	testsFlag      = internal.StringsFlag("tests", nil, "filter test to run (can be provided multiple times)")
 )
 
+// version is set at build time.
+var version = "(devel)"
+
 func main() {
 	if err := mainE(); err != nil {
 		fmt.Println("Error:", err)
@@ -79,8 +82,12 @@ func mainE() error {
 	}
 	defer closeLog()
 
-	_, err = tea.NewProgram(newMainModel(infoReader, errorReader)).Run()
-	return err //nolint:wrapcheck // Wrapping this error wouldn't add any value.
+	m, err := tea.NewProgram(newMainModel(infoReader, errorReader)).Run()
+	if err != nil {
+		return err //nolint:wrapcheck // Wrapping this error wouldn't add any value.
+	}
+
+	return m.(mainModel).LastError()
 }
 
 func prepareLogger() (io.Reader, io.Reader, func(), error) {
@@ -135,6 +142,9 @@ type mainModel struct {
 	// Log models for the CLI.
 	infoLogModel  internal.LogModel
 	errorLogModel internal.LogModel
+
+	// Last error that occurred.
+	lastError error
 }
 
 type mainModelMsgInitDone struct {
@@ -163,6 +173,10 @@ func newMainModel(infoReader, errorReader io.Reader) mainModel {
 		infoLogModel:  internal.NewLogModel(infoReader, 10),
 		errorLogModel: internal.NewLogModel(errorReader, 0),
 	}
+}
+
+func (m mainModel) LastError() error {
+	return m.lastError
 }
 
 func (m mainModel) Init() tea.Cmd {
@@ -312,7 +326,13 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tests = tests
 
 		if msg.err != nil {
+			// We are displaying log messages in the CLI through the log models,
+			// which won't get updated anymore, because the quit command will
+			// stop the program. The error message is only flushed to the log
+			// file, while the error is stored in lastError and printed in the
+			// main function.
 			slog.Error("Error initializing", "error", msg.err)
+			m.lastError = msg.err
 			return m, m.quitCmd()
 		}
 
