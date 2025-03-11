@@ -320,6 +320,17 @@ tests:
         compose: "./compose-file-tool.override.yml"
 ```
 
+## Troubleshooting
+
+- Benchi fails with the error `Cannot connect to the Docker daemon at
+  unix:///var/run/docker.sock. Is the docker daemon running?`.
+
+Benchi is communicating with Docker using the default Docker socket. If you are
+using Docker Desktop, you can enable it under Settings -> Advanced and check the
+box for "Allow the default Docker socket to be used".
+
+---
+
 ## License
 
 Benchi is licensed under the Apache License, Version 2.0. See the
