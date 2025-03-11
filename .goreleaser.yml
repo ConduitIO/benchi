@@ -1,6 +1,6 @@
 version: 2
 builds:
-  - main: ./cmd/connector/main.go
+  - main: ./cmd/benchi/main.go
     goos:
       - darwin
       - linux
