@@ -41,10 +41,12 @@ import (
 )
 
 var (
-	configPathFlag = flag.String("config", "", "path to the benchmark config file")
-	outPathFlag    = flag.String("out", "./results/${now}", "path to the output folder")
-	toolsFlag      = internal.StringsFlag("tool", nil, "filter tool to be tested (can be provided multiple times)")
-	testsFlag      = internal.StringsFlag("tests", nil, "filter test to run (can be provided multiple times)")
+	configPathFlag = flag.String("config", "", "Path to the benchmark config file")
+	outPathFlag    = flag.String("out", "./results/${now}", "Path to the output folder")
+	toolsFlag      = internal.StringsFlag("tool", nil, "Filter tool to be tested (can be provided multiple times)")
+	testsFlag      = internal.StringsFlag("tests", nil, "Filter test to run (can be provided multiple times)")
+
+	versionFlag = flag.Bool("v", false, "Print version")
 )
 
 // version is set at build time.
@@ -59,6 +61,11 @@ func main() {
 
 func mainE() error {
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Println("benchi", version)
+		return nil
+	}
 
 	if configPathFlag == nil || strings.TrimSpace(*configPathFlag) == "" {
 		return fmt.Errorf("config path is required")
