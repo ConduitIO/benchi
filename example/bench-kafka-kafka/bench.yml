@@ -23,7 +23,7 @@ metrics:
 
 tests:
   - name: kafka-to-kafka
-    duration: 1m
+    duration: 30s
 
     tools:
       conduit:
@@ -41,9 +41,9 @@ tests:
           container: "benchi-kafka"
           run: |
             /opt/kafka/bin/kafka-producer-perf-test.sh \
-              --throughput 1000000 \
+              --throughput 1500000 \
               --record-size 1000 \
-              --num-records 1000000 \
+              --num-records 1500000 \
               --topic benchi-in \
               --producer-props linger.ms=0 batch.size=16384 bootstrap.servers=benchi-kafka:9092 \
               --print-metrics
@@ -51,20 +51,6 @@ tests:
       post-tool:
       pre-test:
       during:
-        - name: "Count forever"
-          run: |
-            n=1
-            while true; do
-              echo "count forever: $n"
-              n=$(expr $n + 1)
-              sleep 1
-            done
-        - name: "Count to 10"
-          run: |
-            for n in $(seq 1 10); do
-              echo "count to 10: $n"
-              sleep 0.5
-            done
       post-test:
       pre-cleanup:
       post-cleanup:

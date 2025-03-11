@@ -18,3 +18,4 @@ pipelines:
         settings:
           servers: "benchi-kafka:9092"
           topic: 'benchi-out'
+          sdk.batch.size: 10000
