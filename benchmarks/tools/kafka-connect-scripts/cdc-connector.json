@@ -16,6 +16,7 @@
         "key.converter": "org.apache.kafka.connect.json.JsonConverter",
         "value.converter": "org.apache.kafka.connect.json.JsonConverter",
 
+        "batch.size": 5000,
         "topic.prefix": "kafkaconnect",
         "poll.await.time.ms": 5000,
         "poll.max.batch.size": 1000
