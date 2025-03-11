@@ -94,7 +94,7 @@ func mainE() error {
 		return err //nolint:wrapcheck // Wrapping this error wouldn't add any value.
 	}
 
-	return m.(mainModel).LastError()
+	return m.(mainModel).LastError() //nolint:forcetypeassert // We know the type of the model.
 }
 
 func prepareLogger() (io.Reader, io.Reader, func(), error) {
