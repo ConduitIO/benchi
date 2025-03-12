@@ -19,7 +19,9 @@ metrics:
     collector: kafka
     settings:
       url: http://localhost:7071/metrics
-      topics: ["benchi-out"]
+      topics:
+        - "benchi-in"
+        - "benchi-out"
 
 tests:
   - name: kafka-to-kafka
