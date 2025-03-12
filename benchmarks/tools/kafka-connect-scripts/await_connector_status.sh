@@ -8,8 +8,8 @@ CONNECTOR_NAME=$(jq -r '.name' "$SCRIPT_DIR/cdc-connector.json")
 
 # Hard-coded configuration variables
 KAFKA_CONNECT_URL="http://localhost:8083"
-MAX_RETRIES=30
-RETRY_INTERVAL=10
+MAX_RETRIES=5
+RETRY_INTERVAL=5
 
 # Get desired status from argument (default to "RUNNING" if not provided)
 DESIRED_STATUS="${1:-RUNNING}"
