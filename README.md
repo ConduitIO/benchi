@@ -27,7 +27,7 @@ the [latest release](https://github.com/ConduitIO/benchi/releases/latest) or
 install it using Go:
 
 ```sh
-go install github.com/ConduitIO/benchi/cmd/benchi@latest
+go install github.com/conduitio/benchi/cmd/benchi@latest
 ```
 
 ## Usage
