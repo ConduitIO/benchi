@@ -127,7 +127,8 @@ tests:
 The `infrastructure` section defines the Docker Compose configurations for the
 infrastructure services required for the benchmark. Each service is identified
 by a custom name, used in logging and to correlate overridden configurations
-specified in a test (see [tests](#tests).
+specified in a test (see [tests](#tests)). The path to the docker compose file
+is relative to the location of the benchmark configuration file.
 
 Example:
 
@@ -142,6 +143,8 @@ infrastructure:
 The `tools` section defines the Docker Compose configurations for the tools
 being benchmarked. Each tool is identified by a custom name, used in logging and
 to correlate overridden configurations specified in a test (see [tests](#tests).
+The path to the docker compose file is relative to the location of the benchmark
+configuration file.
 
 Example:
 
@@ -259,7 +262,9 @@ container created from a specified image. The `container` field specifies the
 name of the container to run the commands in. The `image` field specifies the
 image to use for the temporary container. If neither `container` nor `image` is
 specified, the commands will run in a temporary container using the
-`alpine:latest` image.
+`alpine:latest` image. Note that running a custom script in a container requires
+the container to contain the necessary script (hint: mount the script as a
+volume).
 
 You can optionally configure the `tools` field to run a hook only for certain
 tools. If the field is not present or empty, the hook is applied for all tools.
@@ -311,6 +316,12 @@ additional configurations are merged with the global configurations (see
 [merging compose files](https://docs.docker.com/compose/how-tos/multiple-compose-files/merge/)).
 This can be useful to inject custom configurations for a specific test.
 
+> [!IMPORTANT]
+> Since the provided configurations are merged with the global configurations,
+> any paths specified in the custom docker compose configurations should be
+> relative to the location of the global docker compose configuration. See
+> [merging rules](https://docs.docker.com/compose/how-tos/multiple-compose-files/merge/#merging-rules).
+
 Example:
 
 ```yaml
@@ -333,8 +344,6 @@ tests:
 Benchi is communicating with Docker using the default Docker socket. If you are
 using Docker Desktop, you can enable it under Settings -> Advanced and check the
 box for "Allow the default Docker socket to be used".
-
----
 
 ## License
 
