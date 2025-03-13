@@ -75,7 +75,7 @@ func mainE() error {
 		return fmt.Errorf("output path is required")
 	}
 
-	*outPathFlag = strings.ReplaceAll(*outPathFlag, "${now}", time.Now().Format("2006_01_02_15_04_05"))
+	*outPathFlag = strings.ReplaceAll(*outPathFlag, "${now}", time.Now().Format("20060102_150405"))
 
 	// Create output directory if it does not exist.
 	err := os.MkdirAll(*outPathFlag, 0o755)
