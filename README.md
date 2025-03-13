@@ -177,59 +177,7 @@ metrics:
 > endpoints of the services being benchmarked by exposing the necessary ports
 > in the Docker Compose configurations.
 
-Available collectors and their configurations:
-
-- `conduit`: Conduit metrics collector. Tracks messages per second for each
-  pipeline.
-  - `url`: URL of the Conduit metrics endpoint.
-  
-  ```yaml
-    metrics:
-      my-conduit-collector:
-        collector: "conduit"
-        settings:
-            url: "http://localhost:8080/metrics"
-    ```
-
-- `kafka`: Kafka metrics collector. Tracks messages per second and bytes per
-  second for each configured topic. 
-  - `url`: URL of the Kafka metrics endpoint.
-  - `topics`: Array of topics to track.
-    
-  ```yaml
-  metrics:
-    my-kafka-collector:
-      collector: "kafka"
-      settings:
-        url: "http://localhost:7071/metrics"
-        topics:
-          - "topic1"
-          - "topic2"
-  ```
-
-- `prometheus`: Prometheus metrics collector. Queries Prometheus for metrics.
-    - `url`: URL of the Prometheus metrics endpoint.
-    - `queries`: Array of queries to run.
-        - `name`: Name of the query.
-        - `query`: Prometheus query.
-        - `unit`: Unit of the query.
-        - `interval`: Interval at which to run the query.
-        
-    ```yaml
-    metrics:
-      my-prometheus-collector:
-        collector: "prometheus"
-        settings:
-          url: "http://localhost:8080/metrics"
-          queries:
-            - name: "http_request_success_rate"
-              query: "rate(request_count{endpoint=hello,status=200}[2s])"
-              unit: "req/s"
-              interval: "1s"
-            - name: "http_request_fail_rate"
-              query: "rate(request_count{endpoint=hello,status!=200}[2s])"
-              interval: "1s"
-    ```
+See [collectors](#collectors) for available collectors and their configurations.
 
 #### `tests`
 
@@ -334,6 +282,142 @@ tests:
     tools:
       name-of-tool:
         compose: "./compose-file-tool.override.yml"
+```
+
+## Collectors
+
+Collectors are used to collect metrics from various sources during the benchmark
+run. The collected metrics are exported in CSV format for further analysis.
+
+Collectors are configured in the [`metrics` section](#metrics) of the benchmark
+configuration file.
+
+Supported collectors:
+
+- [Conduit](#conduit)
+- [Docker](#docker)
+- [Kafka](#kafka)
+- [Prometheus](#prometheus)
+
+### Conduit
+
+The Conduit metrics collector tracks the throughput for each configured
+pipeline in [Conduit](https://github.com/conduitio/conduit).
+
+Settings:
+
+- `url`: URL of the Conduit metrics endpoint (needs to be reachable from the
+  benchi process).
+- `pipelines`: Array of pipelines to track.
+
+```yaml
+metrics:
+  my-conduit-collector:
+    collector: "conduit"
+    settings:
+      url: "http://localhost:8080/metrics"
+      pipelines:
+        - "pipeline1"
+        - "pipeline2"
+```
+
+Metrics:
+
+- `msg-rate-per-second[PIPELINE]`: Messages per second per pipeline.
+- `msg-megabytes-in-per-second[PIPELINE]`: Incoming megabytes per second per
+  pipeline (measured as records read by the source connector).
+- `msg-megabytes-out-per-second[PIPELINE]`: Outgoing megabytes per second per
+  pipeline (measured as records written by the destination connector).
+
+### Docker
+
+The Docker metrics collector tracks the container resource usage during the
+benchmark run.
+
+Settings:
+
+- `containers`: Array of containers to track.
+
+```yaml
+metrics:
+  my-docker-collector:
+    collector: "docker"
+    settings:
+      containers:
+        - "my-app"
+        - "database"
+        - "cache"
+```
+
+Metrics:
+
+- `cpu-percentage[CONTAINER]`: CPU usage in percent at a specific point in time
+  per container.
+- `memory-usage[CONTAINER]`: Memory usage in megabytes at a specific point in
+  time per container.
+
+### Kafka
+
+The Kafka metrics collector tracks the throughput for each configured topic in
+[Apache Kafka](https://kafka.apache.org/).
+
+The collector expects Kafka to expose a Prometheus metrics endpoint via the
+[Prometheus JMX exporter](https://prometheus.github.io/jmx_exporter/). To see
+how to configure it, check out the
+[example configuration](./example/infra/compose-kafka.yml).
+
+Settings:
+
+- `url`: URL of the Kafka metrics endpoint (needs to be reachable from the
+  benchi process).
+- `topics`: Array of topics to track.
+
+```yaml
+metrics:
+  my-kafka-collector:
+    collector: "kafka"
+    settings:
+      url: "http://localhost:7071/metrics"
+      topics:
+        - "topic1"
+        - "topic2"
+```
+
+### Prometheus
+
+The Prometheus metrics collector continuously scrapes a metrics endpoint, stores
+the metrics in memory and queries them using
+[PromQL](https://prometheus.io/docs/prometheus/latest/querying/basics/).
+
+It is expected that the query returns a matrix with a single series. The query
+should be a
+[ranged query](https://prometheus.io/docs/prometheus/latest/querying/basics/#range-vector-selectors),
+which will be evaluated between the start of the test and the end of the test.
+
+Settings:
+
+- `url`: URL of the Prometheus metrics endpoint.
+- `queries`: Array of queries to run.
+   - `name`: Name of the query.
+   - `query`: [PromQL](https://prometheus.io/docs/prometheus/latest/querying/basics/) query.
+   - `unit`: Unit of the query (optional, only for displaying in the CLI).
+   - `interval`: Resolution of the ranged query.
+
+```yaml
+metrics:
+  my-prometheus-collector:
+    collector: "prometheus"
+    settings:
+      url: "http://localhost:8080/metrics"
+      queries:
+        - name: "http_request_success_rate"
+          query: "rate(request_count{endpoint=hello,status=200}[2s])"
+          unit: "req/s"
+          interval: "1s"
+        - name: "http_request_fail_rate"
+          query: "rate(request_count{endpoint=hello,status!=200}[2s])"
+          unit: "req/s"
+          interval: "1s"
 ```
 
 ## Troubleshooting

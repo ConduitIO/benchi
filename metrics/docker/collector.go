@@ -158,7 +158,7 @@ type sampleCollector struct {
 var sampleCollectors = []sampleCollector{
 	{
 		name: func(container string) string {
-			return fmt.Sprintf("cpu_percentage[%s]", container)
+			return fmt.Sprintf("cpu-percentage[%s]", container)
 		},
 		unit: "%",
 		sample: func(entry statsEntry) metrics.Sample {
@@ -167,7 +167,7 @@ var sampleCollectors = []sampleCollector{
 	},
 	{
 		name: func(container string) string {
-			return fmt.Sprintf("memory_usage[%s]", container)
+			return fmt.Sprintf("memory-usage[%s]", container)
 		},
 		unit: "MB",
 		sample: func(entry statsEntry) metrics.Sample {
