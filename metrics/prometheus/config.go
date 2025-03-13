@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"net/url"
 	"time"
+
+	"github.com/go-viper/mapstructure/v2"
 )
 
 var defaultConfig = Config{
@@ -32,6 +34,33 @@ type Config struct {
 	// Queries are the query configurations used when querying the collected
 	// metrics.
 	Queries []QueryConfig `yaml:"queries"`
+}
+
+func parseConfig(settings map[string]any) (Config, error) {
+	cfg := defaultConfig
+	dec, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		DecodeHook:       mapstructure.StringToTimeDurationHookFunc(),
+		ErrorUnused:      true,
+		WeaklyTypedInput: true,
+		Result:           &cfg,
+		TagName:          "yaml",
+	})
+	if err != nil {
+		return Config{}, fmt.Errorf("failed to create decoder: %w", err)
+	}
+
+	err = dec.Decode(settings)
+	if err != nil {
+		return Config{}, fmt.Errorf("failed to decode settings: %w", err)
+	}
+
+	// Try parsing the URL to ensure it's valid.
+	_, err = cfg.parseURL()
+	if err != nil {
+		return Config{}, fmt.Errorf("failed to parse URL: %w", err)
+	}
+
+	return cfg, nil
 }
 
 func (c Config) parseURL() (*url.URL, error) {

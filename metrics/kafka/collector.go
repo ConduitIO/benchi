@@ -20,7 +20,6 @@ import (
 
 	"github.com/conduitio/benchi/metrics"
 	"github.com/conduitio/benchi/metrics/prometheus"
-	"github.com/go-viper/mapstructure/v2"
 )
 
 const Type = "kafka"
@@ -40,7 +39,7 @@ func (c *Collector) Type() string {
 }
 
 func (c *Collector) Configure(settings map[string]any) error {
-	cfg, err := c.parseConfig(settings)
+	cfg, err := parseConfig(settings)
 	if err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
@@ -83,27 +82,6 @@ func (c *Collector) Configure(settings map[string]any) error {
 
 	//nolint:wrapcheck // The prometheus collector is responsible for wrapping the error.
 	return c.Collector.Configure(settings)
-}
-
-func (c *Collector) parseConfig(settings map[string]any) (Config, error) {
-	var cfg Config
-	dec, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
-		DecodeHook:       mapstructure.StringToTimeDurationHookFunc(),
-		ErrorUnused:      false,
-		WeaklyTypedInput: true,
-		Result:           &cfg,
-		TagName:          "yaml",
-	})
-	if err != nil {
-		return Config{}, fmt.Errorf("failed to create decoder: %w", err)
-	}
-
-	err = dec.Decode(settings)
-	if err != nil {
-		return Config{}, fmt.Errorf("failed to decode settings: %w", err)
-	}
-
-	return cfg, nil
 }
 
 func NewCollector(logger *slog.Logger, name string) *Collector {

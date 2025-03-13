@@ -14,7 +14,34 @@
 
 package conduit
 
+import (
+	"fmt"
+
+	"github.com/go-viper/mapstructure/v2"
+)
+
 type Config struct {
 	// Pipelines is a list of pipelines to monitor.
 	Pipelines []string `yaml:"pipelines"`
+}
+
+func parseConfig(settings map[string]any) (Config, error) {
+	var cfg Config
+	dec, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		DecodeHook:       mapstructure.StringToTimeDurationHookFunc(),
+		ErrorUnused:      false, // Unused fields will be reported by the prometheus collector.
+		WeaklyTypedInput: true,
+		Result:           &cfg,
+		TagName:          "yaml",
+	})
+	if err != nil {
+		return Config{}, fmt.Errorf("failed to create decoder: %w", err)
+	}
+
+	err = dec.Decode(settings)
+	if err != nil {
+		return Config{}, fmt.Errorf("failed to decode settings: %w", err)
+	}
+
+	return cfg, nil
 }

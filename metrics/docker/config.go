@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package kafka
+package docker
 
 import (
 	"fmt"
@@ -21,15 +21,15 @@ import (
 )
 
 type Config struct {
-	// Topics is a list of topics to monitor.
-	Topics []string `yaml:"topics"`
+	// Containers is a list of containers to monitor.
+	Containers []string `yaml:"containers"`
 }
 
 func parseConfig(settings map[string]any) (Config, error) {
 	var cfg Config
 	dec, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		DecodeHook:       mapstructure.StringToTimeDurationHookFunc(),
-		ErrorUnused:      false, // Unused fields will be reported by the prometheus collector.
+		ErrorUnused:      true,
 		WeaklyTypedInput: true,
 		Result:           &cfg,
 		TagName:          "yaml",

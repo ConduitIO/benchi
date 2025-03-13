@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/conduitio/benchi/metrics"
-	"github.com/go-viper/mapstructure/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/config"
@@ -82,7 +81,7 @@ func (c *Collector) Results() []metrics.Results {
 }
 
 func (c *Collector) Configure(settings map[string]any) (err error) {
-	cfg, err := c.parseConfig(settings)
+	cfg, err := parseConfig(settings)
 	if err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
@@ -118,33 +117,6 @@ func (c *Collector) Configure(settings map[string]any) (err error) {
 	}
 
 	return nil
-}
-
-func (c *Collector) parseConfig(settings map[string]any) (Config, error) {
-	cfg := defaultConfig
-	dec, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
-		DecodeHook:       mapstructure.StringToTimeDurationHookFunc(),
-		ErrorUnused:      true,
-		WeaklyTypedInput: true,
-		Result:           &cfg,
-		TagName:          "yaml",
-	})
-	if err != nil {
-		return Config{}, fmt.Errorf("failed to create decoder: %w", err)
-	}
-
-	err = dec.Decode(settings)
-	if err != nil {
-		return Config{}, fmt.Errorf("failed to decode settings: %w", err)
-	}
-
-	// Try parsing the URL to ensure it's valid.
-	_, err = cfg.parseURL()
-	if err != nil {
-		return Config{}, fmt.Errorf("failed to parse URL: %w", err)
-	}
-
-	return cfg, nil
 }
 
 func (c *Collector) prometheusConfig(cfg Config) *config.Config {

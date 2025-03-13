@@ -34,6 +34,7 @@ import (
 	"github.com/conduitio/benchi/dockerutil"
 	"github.com/conduitio/benchi/metrics"
 	"github.com/conduitio/benchi/metrics/conduit"
+	"github.com/conduitio/benchi/metrics/docker"
 	"github.com/conduitio/benchi/metrics/kafka"
 	"github.com/conduitio/benchi/metrics/prometheus"
 	"github.com/docker/docker/client"
@@ -59,15 +60,16 @@ type TestRunnerOptions struct {
 	DockerClient client.APIClient
 }
 
-var registerCollectorsOnce = sync.OnceFunc(func() {
-	conduit.Register()
-	prometheus.Register()
-	kafka.Register()
-})
+var registerCollectorsOnce sync.Once
 
 //nolint:funlen,gocognit // It's a bit longer, but still readable.
 func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) (TestRunners, error) {
-	registerCollectorsOnce()
+	registerCollectorsOnce.Do(func() {
+		conduit.Register()
+		prometheus.Register()
+		kafka.Register()
+		docker.Register(opt.DockerClient)
+	})
 
 	runs := make(TestRunners, 0, len(cfg.Tests)*len(cfg.Tools))
 

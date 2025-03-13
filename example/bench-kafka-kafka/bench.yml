@@ -24,6 +24,14 @@ metrics:
       topics:
         - "benchi-in"
         - "benchi-out"
+  docker:
+    collector: docker
+    tools:
+      - conduit
+    settings:
+      containers:
+        - "benchi-kafka"
+        - "benchi-conduit"
 
 tests:
   - name: kafka-to-kafka
