@@ -176,7 +176,7 @@ testVersion() {
     fail "$PROJECT_NAME not found."
   fi
   set -e
-  BENCHI_VERSION=$($PROJECT_NAME --version)
+  BENCHI_VERSION=$($PROJECT_NAME -v)
   coloredEcho "\n$BENCHI_VERSION installed successfully"
 }
 
