@@ -100,7 +100,8 @@ get() {
   elif [ "$DOWNLOAD_TOOL" = "wget" ]; then
     tmpFile=$(mktemp)
     body=$(wget --server-response --content-on-error -q -O - "$url" 2>$tmpFile || true)
-    httpStatusCode=$(cat $tmpFile | awk '/^  HTTP/{print $2}')
+    httpStatusCode=$(cat $tmpFile | awk '/^  HTTP/{print $2}' | tail -1)
+    rm -f $tmpFile
   fi
   if [ "$httpStatusCode" != 200 ]; then
     echo "Request fail with http status code $httpStatusCode"
@@ -112,13 +113,23 @@ get() {
 getFile() {
   local url="$1"
   local filePath="$2"
+  local httpStatusCode
+
   if [ "$DOWNLOAD_TOOL" = "curl" ]; then
     httpStatusCode=$(curl --progress-bar -w '%{http_code}' -L "$url" -o "$filePath")
+    echo "$httpStatusCode"
   elif [ "$DOWNLOAD_TOOL" = "wget" ]; then
-    body=$(wget --server-response --content-on-error -q -O "$filePath" "$url")
-    httpStatusCode=$(cat $tmpFile | awk '/^  HTTP/{print $2}')
+    tmpFile=$(mktemp)
+    wget --server-response --content-on-error -q -O "$filePath" "$url" 2>$tmpFile
+    if [ $? -ne 0 ]; then
+      httpStatusCode=$(cat $tmpFile | awk '/^  HTTP/{print $2}' | tail -1)
+      rm -f $tmpFile
+      echo "$httpStatusCode"
+      return 1
+    fi
+    rm -f $tmpFile
+    echo "200"
   fi
-  echo "$httpStatusCode"
 }
 
 install() {
@@ -127,10 +138,13 @@ install() {
 
   local version="${TAG#v}" # Remove the leading 'v' from TAG and store it in 'version'
   BENCHI_DIST="benchi_${version}_${OS}_${ARCH}.tar.gz"
+  EXTRACTION_DIR="/tmp/benchi_${version}_${OS}_${ARCH}"
 
   DOWNLOAD_URL="https://github.com/ConduitIO/benchi/releases/download/$TAG/$BENCHI_DIST"
   BENCHI_TMP_FILE="/tmp/$BENCHI_DIST"
   echo "Downloading $DOWNLOAD_URL"
+
+  # Download the file
   httpStatusCode=$(getFile "$DOWNLOAD_URL" "$BENCHI_TMP_FILE")
   if [ "$httpStatusCode" -ne 200 ]; then
     echo "Did not find a release for your system: $OS $ARCH"
@@ -144,21 +158,45 @@ install() {
       fail "You can ask one here: https://github.com/conduitio/$PROJECT_NAME/issues"
     else
       echo "Downloading $DOWNLOAD_URL"
-      getFile "$DOWNLOAD_URL" "$BENCHI_TMP_FILE"
+      httpStatusCode=$(getFile "$DOWNLOAD_URL" "$BENCHI_TMP_FILE")
+      if [ "$httpStatusCode" -ne 200 ]; then
+        fail "Failed to download from $DOWNLOAD_URL"
+      fi
     fi
   fi
 
+  # Create extraction directory if it doesn't exist
+  mkdir -p "$EXTRACTION_DIR"
+  if [ $? -ne 0 ]; then
+    fail "Failed to create extraction directory $EXTRACTION_DIR"
+  fi
+
   # Extract the tar file
-  tar -xf $BENCHI_TMP_FILE -C "/tmp/benchi_${version}_${OS}_${ARCH}"
+  tar -xf "$BENCHI_TMP_FILE" -C "$EXTRACTION_DIR"
+  if [ $? -ne 0 ]; then
+    fail "Failed to extract $BENCHI_TMP_FILE to $EXTRACTION_DIR"
+  fi
+
+  # Check if binary exists after extraction
+  if [ ! -f "$EXTRACTION_DIR/benchi" ]; then
+    fail "Could not find benchi binary in extracted files"
+  fi
 
   # Move the binary to /usr/local/bin with sudo (since it requires admin privileges)
-  sudo mv "/tmp/benchi_${version}_${OS}_${ARCH}/benchi" /usr/local/bin/
+  sudo mv "$EXTRACTION_DIR/benchi" /usr/local/bin/
+  if [ $? -ne 0 ]; then
+    fail "Failed to move benchi to /usr/local/bin/"
+  fi
 
   # Make sure it has the correct permissions
   sudo chmod 755 /usr/local/bin/benchi
+  if [ $? -ne 0 ]; then
+    fail "Failed to set permissions on /usr/local/bin/benchi"
+  fi
 
-  # Verify the installation
-  benchi -v  # or whatever command shows the version
+  # Clean up temporary files
+  rm -f "$BENCHI_TMP_FILE"
+  rm -rf "$EXTRACTION_DIR"
 }
 
 bye() {
