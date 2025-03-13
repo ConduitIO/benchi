@@ -147,6 +147,18 @@ install() {
       getFile "$DOWNLOAD_URL" "$BENCHI_TMP_FILE"
     fi
   fi
+
+  # Extract the tar file
+  tar -xf $BENCHI_TMP_FILE -C "/tmp/benchi_${version}_${OS}_${ARCH}"
+
+  # Move the binary to /usr/local/bin with sudo (since it requires admin privileges)
+  sudo mv "/tmp/benchi_${version}_${OS}_${ARCH}/benchi" /usr/local/bin/
+
+  # Make sure it has the correct permissions
+  sudo chmod 755 /usr/local/bin/benchi
+
+  # Verify the installation
+  benchi --version  # or whatever command shows the version
 }
 
 bye() {
