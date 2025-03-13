@@ -1,27 +1,27 @@
 version: "2.2"
 pipelines:
-    - id: mongo-to-kafka
-      status: stopped
-      name: ""
-      description: MongoDB to Kafka
-      connectors:
-        - id: mongo-source
-          type: source
-          plugin: builtin:mongo
-          settings:
-            collection: users
-            db: test
-            uri: "mongodb://mongo1:30001,mongo2:30002,mongo3:30003/test?replicaSet=my-replica-set"
-            sdk.batch.size: 10000
-            sdk.schema.extract.key.enabled: false
-            sdk.schema.extract.payload.enabled: false
-        - id: kafka-destination
-          type: destination
-          plugin: builtin:kafka
-          name: kafka-destination
-          settings:
-            servers: "benchi-kafka:9092"
-            topic: destination-topic
-            compression: "none"
-            sdk.batch.size: 10000
-            sdk.batch.delay: "1s"
+  - id: mongo-to-kafka
+    status: stopped
+    name: ""
+    description: MongoDB to Kafka
+    connectors:
+      - id: mongo-source
+        type: source
+        plugin: builtin:mongo
+        settings:
+          collection: users
+          db: test
+          uri: "mongodb://mongo1:30001,mongo2:30002,mongo3:30003/test?replicaSet=my-replica-set"
+          sdk.batch.size: 10000
+          sdk.schema.extract.key.enabled: false
+          sdk.schema.extract.payload.enabled: false
+      - id: kafka-destination
+        type: destination
+        plugin: builtin:kafka
+        name: kafka-destination
+        settings:
+          servers: "benchi-kafka:9092"
+          topic: destination-topic
+          compression: "none"
+          sdk.batch.size: 10000
+          sdk.batch.delay: "1s"

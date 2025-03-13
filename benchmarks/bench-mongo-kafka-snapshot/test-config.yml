@@ -34,7 +34,7 @@ metrics:
 
 tests:
   - name: mongo-to-kafka-snapshot
-    duration: 2m
+    duration: 1m
 
     tools:
       conduit:
@@ -42,7 +42,7 @@ tests:
 
     steps:
       pre-infrastructure:
-      post-infrastructure:    
+      post-infrastructure:
         - name: "Create database"
           container: "mongo1"
           run: |-
@@ -50,7 +50,7 @@ tests:
       pre-tool:
       post-tool:
         - name: "Conduit: Install tools"
-          tools: 
+          tools:
             - conduit
           container: "benchi-conduit"
           run: |-
@@ -62,14 +62,14 @@ tests:
             /scripts/insert_test_data.sh
 
         - name: "Conduit: start pipeline"
-          tools: 
+          tools:
             - conduit
           container: "benchi-conduit"
           run: |-
             /scripts/start_pipeline.sh
 
         - name: "KC: start pipeline"
-          tools: 
+          tools:
             - kafka-connect
           container: "benchi-kafka-connect"
           run: |-
