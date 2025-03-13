@@ -30,6 +30,12 @@ install it using Go:
 go install github.com/conduitio/benchi/cmd/benchi@latest
 ```
 
+Alternatively, you can install just the Benchi binary on a Linux OS with:
+
+```shell
+curl https://raw.githubusercontent.com/ConduitIO/benchi/main/install.sh | sh
+```
+
 ## Usage
 
 ### Running Benchmarks
