@@ -158,7 +158,7 @@ install() {
   sudo chmod 755 /usr/local/bin/benchi
 
   # Verify the installation
-  benchi --version  # or whatever command shows the version
+  benchi -v  # or whatever command shows the version
 }
 
 bye() {
