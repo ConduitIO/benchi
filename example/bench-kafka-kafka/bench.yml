@@ -3,8 +3,6 @@ infrastructure:
     compose: ../infra/compose-kafka.yml
 
 tools:
-  kafka-connect:
-    compose: ../tools/compose-kafka-connect.yml
   conduit:
     compose: ../tools/compose-conduit.yml
 
@@ -26,8 +24,6 @@ metrics:
         - "benchi-out"
   docker:
     collector: docker
-    tools:
-      - conduit
     settings:
       containers:
         - "benchi-kafka"

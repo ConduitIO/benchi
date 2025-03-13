@@ -40,11 +40,26 @@ curl https://raw.githubusercontent.com/ConduitIO/benchi/main/install.sh | sh
 
 ### Running Benchmarks
 
-To run the example benchmark, use the following command:
+The repository includes an [example benchmark](./example). Use the following
+command to run the benchmark:
 
 ```sh
 benchi -config ./example/bench-kafka-kafka/bench.yaml
 ```
+
+Running the benchmark will store the results in the `results` folder. Inside the
+results folder, you will find a folder named after the current date and time
+(e.g. `results/20060102_150405`). This folder will contain logs and results:
+
+- `benchi.log`: Log file containing the output of the benchmark run.
+- `infra.log`: Log file containing the output of the infrastructure docker containers.
+- `tools.log`: Log file containing the output of the tools docker containers.
+- `conduit.csv`: Metrics collected using the [Conduit](#conduit) collector.
+- `docker.csv`: Metrics collected using the [Docker](#docker) collector.
+- `kafka.csv`: Metrics collected using the [Kafka](#kafka) collector.
+
+For details about the example benchmark, see the
+[example README](./example/README.md).
 
 ### Command-Line Flags
 
@@ -53,7 +68,7 @@ benchi -config ./example/bench-kafka-kafka/bench.yaml
 - `-tool`: Filter tool to be tested (can be provided multiple times).
 - `-tests`: Filter test to run (can be provided multiple times).
 
-\* `${now}` is replaced with the current time formatted as `YYYYMMDDHHMMSS`.
+\* `${now}` is replaced with the current time formatted as `YYYYMMDD_HHMMSS`.
 
 ### Docker network
 
