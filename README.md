@@ -383,6 +383,12 @@ metrics:
         - "topic2"
 ```
 
+Metrics:
+
+- `msg-rate-in-per-second[TOPIC]`: Incoming messages per second per topic.
+- `msg-megabytes-in-per-second[TOPIC]`: Incoming megabytes per second per topic.
+- `msg-megabytes-out-per-second[TOPIC]`: Outgoing megabytes per second per topic.
+
 ### Prometheus
 
 The Prometheus metrics collector continuously scrapes a metrics endpoint, stores
@@ -419,6 +425,9 @@ metrics:
           unit: "req/s"
           interval: "1s"
 ```
+
+Metrics are user defined using the `queries` field. The `name` field is used as
+the metric name in the CSV output.
 
 ## Troubleshooting
 
