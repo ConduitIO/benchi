@@ -1,0 +1,98 @@
+startDelaySeconds: 0
+lowercaseOutputName: true
+rules:
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=BytesInPerSec><>Count
+    name: kafka_server_total_bytes_in_per_sec
+    help: Aggregate incoming byte rate
+    type: UNTYPED
+
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=BytesInPerSec, topic=(.+)><>Count
+    name: kafka_server_total_bytes_in_per_sec_per_topic
+    help: Aggregate incoming byte rate per topic
+    labels:
+      topic: "$1"
+    type: UNTYPED
+
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=BytesOutPerSec><>Count
+    name: kafka_server_total_bytes_out_per_sec
+    help: Aggregate outgoing byte rate
+    type: UNTYPED
+
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=BytesOutPerSec, topic=(.+)><>Count
+    name: kafka_server_total_bytes_out_per_sec_per_topic
+    help: Aggregate outgoing byte rate per topic
+    labels:
+      topic: "$1"
+    type: UNTYPED
+
+  - pattern: kafka.network<type=RequestMetrics, name=RequestsPerSec, request=(Produce|FetchConsumer|FetchFollower)><>Count
+    name: kafka_network_requests_per_sec
+    help: Request rate (Produce, FetchConsumer, FetchFollower)
+    labels:
+      request: "$1"
+    type: UNTYPED
+
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=TotalProduceRequestsPerSec><>Count
+    name: kafka_server_total_produce_requests_per_sec
+    help: Produce request rate
+    type: UNTYPED
+
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=TotalProduceRequestsPerSec, topic=(.+)><>Count
+    name: kafka_server_total_produce_requests_per_sec_per_topic
+    help: Produce request rate per topic
+    labels:
+      topic: "$1"
+    type: UNTYPED
+
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=TotalFetchRequestsPerSec><>Count
+    name: kafka_server_total_fetch_requests_per_sec
+    help: Fetch request rate
+    type: UNTYPED
+
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=TotalFetchRequestsPerSec, topic=(.+)><>Count
+    name: kafka_server_total_fetch_requests_per_sec_per_topic
+    help: Fetch request rate per topic
+    labels:
+      topic: "$1"
+    type: UNTYPED
+
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=FailedProduceRequestsPerSec><>Count
+    name: kafka_server_failed_produce_requests_per_sec
+    help: Produce request rate for requests that failed
+    type: UNTYPED
+
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=FailedProduceRequestsPerSec, topic=(.*)><>Count
+    name: kafka_server_failed_produce_requests_per_sec_per_topic
+    help: Produce request rate for requests that failed per topic
+    labels:
+      topic: "$1"
+    type: UNTYPED
+
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=FailedFetchRequestsPerSec><>Count
+    name: kafka_server_failed_fetch_requests_per_sec
+    help: Fetch request rate for requests that failed
+    type: UNTYPED
+
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=FailedFetchRequestsPerSec, topic=(.*)><>Count
+    name: kafka_server_failed_fetch_requests_per_sec_per_topic
+    help: Fetch request rate for requests that failed per topic
+    labels:
+      topic: "$1"
+    type: UNTYPED
+
+  - pattern: kafka.server<type=KafkaRequestHandlerPool, name=RequestHandlerAvgIdlePercent><>Count
+    name: kafka_server_request_handler_avg_idle_precent
+    help: Average fraction of time the request handler threads are idle. Values are between 0 (all resources are used) and 1 (all resources are available)
+    type: GAUGE
+
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=MessagesInPerSec><>Count
+    name: kafka_server_messages_in_per_sec
+    help: Aggregate incoming message rate
+    type: COUNTER
+
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=MessagesInPerSec, topic=(.+)><>Count
+    name: kafka_server_messages_in_per_sec_per_topic
+    help: Aggregate incoming message rate per_topic
+    labels:
+      topic: "$1"
+    type: COUNTER
