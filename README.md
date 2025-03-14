@@ -90,6 +90,27 @@ networks:
     external: true
 ```
 
+### Environment variables
+
+Benchi runs all Docker Compose commands using the same environment variables as
+the current shell. This means that you can use environment variables to pass
+values to your services.
+
+For instance, having the following Docker Compose configuration:
+
+```yaml
+services:
+  my-service:
+    environment:
+      - MY_ENV_VAR=${MY_ENV_VAR}
+```
+
+You can inject the environment variable by running Benchi as follows:
+
+```sh
+MY_ENV_VAR=my-value benchi -config ./my-benchmark.yml
+```
+
 ### Configuration
 
 Benchi uses a YAML configuration file to define the benchmark in combination
