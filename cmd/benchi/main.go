@@ -142,9 +142,11 @@ type mainModel struct {
 	config       config.Config
 	resultsDir   string
 	dockerClient client.APIClient
+	testRunners  benchi.TestRunners
 
 	tests            []testModel
 	currentTestIndex int
+	executedTests    []int // Indexes of tests that have been executed
 
 	// Log models for the CLI.
 	infoLogModel  internal.LogModel
@@ -166,6 +168,10 @@ type mainModelMsgInitDone struct {
 
 type mainModelMsgNextTest struct {
 	testIndex int
+}
+
+type mainModelMsgExportedAggregatedMetrics struct {
+	err error
 }
 
 func newMainModel(infoReader, errorReader io.Reader) mainModel {
@@ -294,6 +300,23 @@ func (mainModel) runTestCmd(index int) tea.Cmd {
 	}
 }
 
+func (m mainModel) exportAggregatedMetricsCmd() tea.Cmd {
+	return func() tea.Msg {
+		if len(m.executedTests) == 0 {
+			return mainModelMsgExportedAggregatedMetrics{}
+		}
+
+		// Collect executed test runners
+		testRunners := make(benchi.TestRunners, 0, len(m.executedTests))
+		for _, i := range m.executedTests {
+			testRunners = append(testRunners, m.testRunners[i])
+		}
+
+		err := testRunners.ExportAggregatedMetrics(m.resultsDir)
+		return mainModelMsgExportedAggregatedMetrics{err: err}
+	}
+}
+
 func (m mainModel) quitCmd() tea.Cmd {
 	return func() tea.Msg {
 		if m.dockerClient != nil {
@@ -321,6 +344,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.config = msg.config
 		m.resultsDir = msg.resultsDir
 		m.dockerClient = msg.dockerClient
+		m.testRunners = msg.testRunners
 
 		tests := make([]testModel, len(msg.testRunners))
 		for i, tr := range msg.testRunners {
@@ -347,7 +371,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.runTestCmd(0)
 	case mainModelMsgNextTest:
 		if msg.testIndex >= len(m.tests) {
-			return m, m.quitCmd()
+			return m, m.exportAggregatedMetricsCmd()
 		}
 		m.currentTestIndex = msg.testIndex
 		return m, m.tests[m.currentTestIndex].Init()
@@ -358,7 +382,20 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Main context is cancelled, skip to the end.
 			nextIndex = len(m.tests)
 		}
+		if msg.err != nil {
+			m.lastError = errors.Join(m.lastError, msg.err)
+		} else {
+			// Only store the index of tests that have been executed successfully.
+			m.executedTests = append(m.executedTests, m.currentTestIndex)
+		}
 		return m, m.runTestCmd(nextIndex)
+
+	case mainModelMsgExportedAggregatedMetrics:
+		if msg.err != nil {
+			slog.Error("Failed to export aggregated metrics", "error", msg.err)
+			m.lastError = errors.Join(m.lastError, msg.err)
+		}
+		return m, m.quitCmd()
 
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
@@ -446,7 +483,9 @@ type testModelMsgStep struct {
 	err error
 }
 
-type testModelMsgDone struct{}
+type testModelMsgDone struct {
+	err error
+}
 
 func newTestModel(ctx context.Context, cleanupCtx context.Context, client client.APIClient, runner *benchi.TestRunner) (testModel, error) {
 	collectorModels := make([]internal.CollectorMonitorModel, 0, len(runner.Collectors()))
@@ -489,9 +528,11 @@ func (m testModel) stepCmd(ctx context.Context) tea.Cmd {
 	}
 }
 
-func (m testModel) doneCmd() tea.Cmd {
+func (m testModel) doneCmd(err error) tea.Cmd {
 	return func() tea.Msg {
-		return testModelMsgDone{}
+		return testModelMsgDone{
+			err: err,
+		}
 	}
 }
 
@@ -508,7 +549,7 @@ func (m testModel) Update(msg tea.Msg) (testModel, tea.Cmd) {
 
 		switch {
 		case m.currentStep == benchi.StepDone:
-			return m, m.doneCmd()
+			return m, m.doneCmd(errors.Join(m.errors...))
 		case m.currentStep >= benchi.StepPreCleanup:
 			// Cleanup steps use the cleanup context.
 			return m, m.stepCmd(m.cleanupCtx)
