@@ -100,6 +100,20 @@ type TestHooks struct {
 	PostCleanup []TestHook `yaml:"post-cleanup"`
 }
 
+func (th TestHooks) All() []TestHook {
+	var hooks []TestHook
+	hooks = append(hooks, th.PreInfrastructure...)
+	hooks = append(hooks, th.PostInfrastructure...)
+	hooks = append(hooks, th.PreTool...)
+	hooks = append(hooks, th.PostTool...)
+	hooks = append(hooks, th.PreTest...)
+	hooks = append(hooks, th.During...)
+	hooks = append(hooks, th.PostTest...)
+	hooks = append(hooks, th.PreCleanup...)
+	hooks = append(hooks, th.PostCleanup...)
+	return hooks
+}
+
 type TestHook struct {
 	// Name is the name of the hook.
 	Name string `yaml:"name"`
