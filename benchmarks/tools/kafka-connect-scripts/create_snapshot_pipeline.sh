@@ -16,4 +16,17 @@
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-curl -s -X POST -H "Content-Type: application/json" -d @"$SCRIPT_DIR/snapshot-connector.json" localhost:8083/connectors
+http_code=$(curl --silent --output /tmp/curl_response --write-out "%{http_code}" -X POST -H "Content-Type: application/json" -d @"$SCRIPT_DIR/snapshot-connector.json" localhost:8083/connectors)
+
+if [ $? -ne 0 ]; then
+    echo "curl command failed"
+    exit 1
+fi
+
+if [ "$http_code" != "201" ]; then
+    echo "Create pipeline request failed with HTTP code: $http_code"
+    echo "Response: $(cat /tmp/curl_response)"
+    exit 1
+fi
+
+echo "Create pipeline request succeeded"

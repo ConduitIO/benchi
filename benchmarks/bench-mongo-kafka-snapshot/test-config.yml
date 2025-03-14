@@ -48,7 +48,7 @@ metrics:
 
 tests:
   - name: mongo-to-kafka-snapshot
-    duration: 2m
+    duration: 1m
 
     tools:
       conduit:

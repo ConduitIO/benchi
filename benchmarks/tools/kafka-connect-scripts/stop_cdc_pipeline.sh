@@ -16,6 +16,19 @@
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-curl -s -X PUT http://localhost:8083/connectors/$(jq -r '.name' "$SCRIPT_DIR/cdc-connector.json")/pause
+http_code=$(curl --silent --output /tmp/curl_response --write-out "%{http_code}" -X PUT http://localhost:8083/connectors/$(jq -r '.name' "$SCRIPT_DIR/cdc-connector.json")/pause)
+
+if [ $? -ne 0 ]; then
+    echo "curl command failed"
+    exit 1
+fi
+
+if [ "$http_code" != "200" ]; then
+    echo "Pipeline stop request failed with HTTP code: $http_code"
+    echo "Response: $(cat /tmp/curl_response)"
+    exit 1
+fi
+
+echo "Pipeline stop request succeeded"
 
 "$SCRIPT_DIR/await_connector_status.sh" "PAUSED"
