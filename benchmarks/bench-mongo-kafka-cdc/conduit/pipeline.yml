@@ -22,5 +22,5 @@ pipelines:
           name: kafka-destination
           settings:
             servers: "benchi-kafka:9092"
-            topic: destination-topic
+            topic: conduit.test.users
             compression: "none"
