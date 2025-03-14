@@ -3,7 +3,7 @@
     "config":
     {
         "connector.class": "com.mongodb.kafka.connect.MongoSourceConnector",
-        "connection.uri": "mongodb://mongo1:30001,mongo2:30002,mongo3:30003/test?replicaSet=my-replica-set",
+        "connection.uri": "mongodb://mongo1:30001,mongo2:30002,mongo3:30003/test?replicaSet=test-replica-set",
         "database": "test",
         "collection": "users",
 

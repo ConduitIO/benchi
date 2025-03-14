@@ -1,5 +1,5 @@
 // Connect to the primary node
-const conn = new Mongo("mongodb://mongo1:30001,mongo2:30002,mongo3:30003/test?replicaSet=my-replica-set");
+const conn = new Mongo("mongodb://mongo1:30001,mongo2:30002,mongo3:30003/test?replicaSet=test-replica-set");
 const testDB = conn.getDB('test');  // Use a different variable name
 
 // Ensure the 'users' collection exists
