@@ -31,10 +31,24 @@ metrics:
     settings:
       url: http://localhost:7071/metrics
       topics: [ "kafkaconnect.test.users" ]
+  docker_metrics_for_conduit:
+    collector: docker
+    tools:
+      - conduit
+    settings:
+      containers:
+        - "benchi-conduit"
+  docker_metrics_for_kafka_connect:
+    collector: docker
+    tools:
+      - kafka-connect
+    settings:
+      containers:
+        - "benchi-kafka-connect"
 
 tests:
   - name: mongo-to-kafka-cdc
-    duration: 2m
+    duration: 1m
 
     tools:
       conduit:
