@@ -11,7 +11,7 @@ require (
 	github.com/golangci/golangci-lint v1.64.7
 	github.com/lmittmann/tint v1.0.7
 	github.com/prometheus/client_golang v1.21.1
-	github.com/prometheus/common v0.62.0
+	github.com/prometheus/common v0.63.0
 	github.com/prometheus/prometheus v0.302.1
 	github.com/samber/slog-multi v1.4.0
 	github.com/sourcegraph/conc v0.3.0
