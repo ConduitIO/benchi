@@ -1,20 +1,32 @@
 #!/bin/sh
 
+# Copyright © 2025 Meroxa, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# This script waits for a connector to be in the given state.
+
 # Script directory for relative paths
 SCRIPT_DIR=$(dirname "$0")
 
-# Get connector name from cdc-connector.json
 CONNECTOR_NAME=$(jq -r '.name' "$SCRIPT_DIR/cdc-connector.json")
 
-# Hard-coded configuration variables
 KAFKA_CONNECT_URL="http://localhost:8083"
 MAX_RETRIES=5
 RETRY_INTERVAL=5
 
-# Get desired status from argument (default to "RUNNING" if not provided)
 DESIRED_STATUS="${1:-RUNNING}"
 
-# Validate desired status
 if [ "$DESIRED_STATUS" != "RUNNING" ] && [ "$DESIRED_STATUS" != "PAUSED" ]; then
   echo "Error: Invalid desired status. Must be 'running' or 'paused'."
   exit 1
@@ -26,7 +38,6 @@ i=1
 while [ $i -le $MAX_RETRIES ]; do
   echo "Attempt $i of $MAX_RETRIES..."
 
-  # Get connector status
   STATUS=$(curl -s "$KAFKA_CONNECT_URL/connectors/$CONNECTOR_NAME/status" | jq -r '.connector.state')
 
   # Check if curl failed
