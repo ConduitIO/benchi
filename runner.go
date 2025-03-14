@@ -286,7 +286,7 @@ func (runners TestRunners) aggregatedMetrics() (headers []string, records [][]st
 					for i := 0; i < len(records); i++ {
 						records[i] = append(records[i], "")
 					}
-					recs = append(recs, "")
+					recs = append(recs, "") //nolint:makezero // False positive.
 				}
 
 				mean, ok := runners.trimmedMean(r.Samples)
