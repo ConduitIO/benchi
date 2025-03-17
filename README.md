@@ -67,7 +67,8 @@ The output folder will contain two files:
 The output folder will also contain one folder per benchmark run (i.e. per test
 and tool combination). Each benchmark run folder will contain:
 
-- `infra.log`: Log file containing the output of the infrastructure docker containers.
+- `infra_NAME.log`: Log file containing the output of the infrastructure docker
+  containers, split per infra service.
 - `tools.log`: Log file containing the output of the tools docker containers.
 - `COLLECTOR.csv`: Raw metrics collected using the corresponding
   [metrics collector](#collectors).
