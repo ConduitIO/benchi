@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -48,8 +49,6 @@ const (
 	NetworkName      = "benchi"
 	DefaultHookImage = "alpine:latest"
 )
-
-type TestRunners []*TestRunner
 
 type TestRunnerOptions struct {
 	// ResultsDir is the directory where the test results are stored.
@@ -225,6 +224,138 @@ func findContainerNames(ctx context.Context, files []string) ([]string, error) {
 	slices.Sort(containers)
 
 	return containers, nil
+}
+
+type TestRunners []*TestRunner
+
+func (runners TestRunners) ExportAggregatedMetrics(resultsDir string) error {
+	path := filepath.Join(resultsDir, "aggregated-results.csv")
+	slog.Info("Exporting aggregated metrics", "path", path)
+
+	headers, records := runners.aggregatedMetrics()
+
+	f, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("error creating file: %w", err)
+	}
+	defer f.Close()
+
+	writer := csv.NewWriter(f)
+	err = writer.Write(headers)
+	if err != nil {
+		return fmt.Errorf("error writing CSV header: %w", err)
+	}
+
+	err = writer.WriteAll(records)
+	if err != nil {
+		return fmt.Errorf("error writing CSV records: %w", err)
+	}
+
+	err = writer.Error()
+	if err != nil {
+		return fmt.Errorf("error writing CSV records: %w", err)
+	}
+
+	return nil
+}
+
+func (runners TestRunners) aggregatedMetrics() (headers []string, records [][]string) {
+	headers = []string{"test", "tool"}
+
+	// colIndexes maps the collector name and metric name to the column index in
+	// the records and headers slices.
+	colIndexes := make(map[string]map[string]int)
+
+	for _, tr := range runners {
+		recs := make([]string, len(headers))
+		recs[0] = tr.Name()
+		recs[1] = tr.Tool()
+
+		for _, c := range tr.Collectors() {
+			indexes := colIndexes[c.Name()]
+			if indexes == nil {
+				indexes = make(map[string]int)
+				colIndexes[c.Name()] = indexes
+			}
+
+			for _, r := range c.Results() {
+				idx := indexes[r.Name]
+				if idx == 0 {
+					idx = len(headers)
+					indexes[r.Name] = idx
+					headers = append(headers, r.Name)
+					// Backfill records with empty values.
+					for i := 0; i < len(records); i++ {
+						records[i] = append(records[i], "")
+					}
+					recs = append(recs, "") //nolint:makezero // False positive.
+				}
+
+				mean, ok := runners.trimmedMean(r.Samples)
+				if ok {
+					recs[idx] = fmt.Sprintf("%.2f", mean)
+				}
+			}
+		}
+		records = append(records, recs)
+	}
+
+	return headers, records
+}
+
+// trimmedMean calculates the trimmed mean of the samples. It trims any zeros
+// from the start and end of the samples, then trims any samples that are more
+// than 2 standard deviations from the mean. It returns the trimmed mean and a
+// boolean indicating if the trimmed mean was calculated successfully.
+func (runners TestRunners) trimmedMean(samples []metrics.Sample) (float64, bool) {
+	if len(samples) == 0 {
+		return 0, false
+	}
+
+	// Trim any zeros from the start and end of the samples.
+	for len(samples) > 0 && samples[0].Value == 0 {
+		samples = samples[1:]
+	}
+	for len(samples) > 0 && samples[len(samples)-1].Value == 0 {
+		samples = samples[:len(samples)-1]
+	}
+
+	if len(samples) == 0 {
+		return 0, true
+	}
+
+	n := float64(len(samples)) // Number of samples as a float.
+
+	// Calculate mean and standard deviation
+	var sum float64
+	for _, s := range samples {
+		sum += s.Value
+	}
+	mean := sum / n
+
+	var variance float64
+	for _, s := range samples {
+		variance += (s.Value - mean) * (s.Value - mean)
+	}
+	stddev := math.Sqrt(variance / n)
+
+	// Trim samples that are more than 2 standard deviations from the mean.
+	var trimmed []float64
+	lowerBound := mean - 2*stddev
+	upperBound := mean + 2*stddev
+	for _, s := range samples {
+		if s.Value >= lowerBound && s.Value <= upperBound {
+			trimmed = append(trimmed, s.Value)
+		}
+	}
+
+	// Calculate the trimmed mean.
+	var trimmedSum float64
+	for _, s := range trimmed {
+		trimmedSum += s
+	}
+
+	return trimmedSum / float64(len(trimmed)), true
 }
 
 // TestRunner is a single test run for a single tool.

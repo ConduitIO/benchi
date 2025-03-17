@@ -40,26 +40,37 @@ curl https://raw.githubusercontent.com/ConduitIO/benchi/main/install.sh | sh
 
 ### Running Benchmarks
 
-The repository includes an [example benchmark](./example). Use the following
-command to run the benchmark:
+Run benchi and point `-config` to a benchmark [configuration file](#configuration).
+The repository includes an [example benchmark](./example), which can be run
+using the following command:
 
 ```sh
 benchi -config ./example/bench-kafka-kafka/bench.yml
 ```
 
-Running the benchmark will store the results in the `results` folder. Inside the
-results folder, you will find a folder named after the current date and time
-(e.g. `results/20060102_150405`). This folder will contain logs and results:
+### Results
 
-- `benchi.log`: Log file containing the output of the benchmark run.
+Running the benchmark will store the results in a folder named after the current
+date and time inside of `results` (e.g. `results/20060102_150405`). You can
+adjust the output folder using the `-out` flag.
+
+The output folder will contain two files:
+
+- `benchi.log`: Log file containing the full output of benchi.
+- `aggregated-results.csv`: Aggregated metric results from all collectors and
+  all tests. The results are aggregated using a
+  [trimmed mean](https://en.wikipedia.org/wiki/Truncated_mean), where the top
+  and bottom 5% of the results are removed. Benchi also disregards any 0 values
+  from the start and end of the test, to accomodate for warm-up and cool-down
+  periods.
+
+The output folder will also contain one folder per benchmark run (i.e. per test
+and tool combination). Each benchmark run folder will contain:
+
 - `infra.log`: Log file containing the output of the infrastructure docker containers.
 - `tools.log`: Log file containing the output of the tools docker containers.
-- `conduit.csv`: Metrics collected using the [Conduit](#conduit) collector.
-- `docker.csv`: Metrics collected using the [Docker](#docker) collector.
-- `kafka.csv`: Metrics collected using the [Kafka](#kafka) collector.
-
-For details about the example benchmark, see the
-[example README](./example/README.md).
+- `COLLECTOR.csv`: Raw metrics collected using the corresponding
+  [metrics collector](#collectors).
 
 ### Command-Line Flags
 
@@ -88,6 +99,27 @@ services:
 networks:
   benchi:
     external: true
+```
+
+### Environment variables
+
+Benchi runs all Docker Compose commands using the same environment variables as
+the current shell. This means that you can use environment variables to pass
+values to your services.
+
+For instance, having the following Docker Compose configuration:
+
+```yaml
+services:
+  my-service:
+    environment:
+      - MY_ENV_VAR=${MY_ENV_VAR}
+```
+
+You can inject the environment variable by running Benchi as follows:
+
+```sh
+MY_ENV_VAR=my-value benchi -config ./my-benchmark.yml
 ```
 
 ### Configuration

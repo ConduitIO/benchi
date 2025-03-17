@@ -32,8 +32,7 @@ type Collector interface {
 	// cancelled. The function should block until the context is cancelled, an
 	// error occurs, or the Stop function is called.
 	Run(ctx context.Context) error
-	// Results returns the collected metrics. If the collector is collecting
-	// multiple metrics, the key should be the name of the metric.
+	// Results returns the collected metrics.
 	Results() []Results
 }
 
