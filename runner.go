@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iter"
 	"log/slog"
 	"maps"
 	"math"
@@ -82,18 +83,21 @@ func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) (TestRunners, er
 			continue
 		}
 
-		infra := make([]config.ServiceConfig, 0, len(cfg.Infrastructure)+len(t.Infrastructure))
-		for _, v := range cfg.Infrastructure {
-			infra = append(infra, v)
+		infra := make(map[string][]config.ServiceConfig)
+		infraComposeFiles := make([]string, 0, len(cfg.Infrastructure)+len(t.Infrastructure))
+		for k, v := range cfg.Infrastructure {
+			infra[k] = append(infra[k], v)
+			infraComposeFiles = append(infraComposeFiles, collectDockerComposeFiles(v)...)
 		}
-		for _, v := range t.Infrastructure {
-			infra = append(infra, v)
+		for k, v := range t.Infrastructure {
+			infra[k] = append(infra[k], v)
+			infraComposeFiles = append(infraComposeFiles, collectDockerComposeFiles(v)...)
 		}
 
 		var infraContainers []string
 		if len(infra) > 0 {
 			var err error
-			infraContainers, err = findContainerNames(context.Background(), collectDockerComposeFiles(infra))
+			infraContainers, err = findContainerNames(context.Background(), infraComposeFiles)
 			if err != nil {
 				return nil, fmt.Errorf("failed to find infrastructure container names: %w", err)
 			}
@@ -132,7 +136,7 @@ func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) (TestRunners, er
 			var toolContainers []string
 			if len(tools) > 0 {
 				var err error
-				toolContainers, err = findContainerNames(context.Background(), collectDockerComposeFiles(tools))
+				toolContainers, err = findContainerNames(context.Background(), collectDockerComposeFiles(tools...))
 				if err != nil {
 					return nil, fmt.Errorf("failed to find tool container names: %w", err)
 				}
@@ -362,7 +366,7 @@ func (runners TestRunners) trimmedMean(samples []metrics.Sample) (float64, bool)
 type TestRunner struct {
 	step Step
 
-	infrastructure []config.ServiceConfig
+	infrastructure map[string][]config.ServiceConfig
 	tools          []config.ServiceConfig
 	collectors     []metrics.Collector
 
@@ -413,7 +417,7 @@ func (r *TestRunner) Duration() time.Duration {
 	return r.duration
 }
 
-func (r *TestRunner) Infrastructure() []config.ServiceConfig {
+func (r *TestRunner) Infrastructure() map[string][]config.ServiceConfig {
 	return r.infrastructure
 }
 
@@ -505,12 +509,20 @@ func (r *TestRunner) runPreInfrastructure(ctx context.Context) (err error) {
 		return fmt.Errorf("failed to create output folder %q: %w", r.resultsDir, err)
 	}
 
+	infraConfigs := fold(
+		maps.Values(r.infrastructure),
+		nil,
+		func(result []config.ServiceConfig, cfgs []config.ServiceConfig) []config.ServiceConfig {
+			return append(result, cfgs...)
+		},
+	)
+
 	// Pull infrastructure images
 	logger.Info("Pulling docker images for infrastructure containers", "containers", r.infrastructureContainers)
 	err = dockerutil.ComposePull(
 		ctx,
 		dockerutil.ComposeOptions{
-			File: collectDockerComposeFiles(r.infrastructure),
+			File: collectDockerComposeFiles(infraConfigs...),
 		},
 		dockerutil.ComposePullOptions{},
 	)
@@ -523,7 +535,7 @@ func (r *TestRunner) runPreInfrastructure(ctx context.Context) (err error) {
 	err = dockerutil.ComposePull(
 		ctx,
 		dockerutil.ComposeOptions{
-			File: collectDockerComposeFiles(r.tools),
+			File: collectDockerComposeFiles(r.tools...),
 		},
 		dockerutil.ComposePullOptions{},
 	)
@@ -543,17 +555,20 @@ func (r *TestRunner) runInfrastructure(ctx context.Context) (err error) {
 	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
-	paths := collectDockerComposeFiles(r.infrastructure)
-	if len(paths) == 0 {
+	if len(r.infrastructure) == 0 {
 		logger.Info("No infrastructure to start")
 		return nil
 	}
 
-	logPath := filepath.Join(r.resultsDir, "infrastructure.log")
+	for k, infraConfigs := range r.infrastructure {
+		logPath := filepath.Join(r.resultsDir, fmt.Sprintf("infra_%s.log", k))
+		paths := collectDockerComposeFiles(infraConfigs...)
 
-	err = r.dockerComposeUpWait(ctx, logger, paths, r.infrastructureContainers, logPath)
-	if err != nil {
-		return fmt.Errorf("failed to start infrastructure: %w", err)
+		logger.Info("Running infrastructure", "name", k, "log-path", logPath)
+		err = r.dockerComposeUpWait(ctx, logger, paths, r.infrastructureContainers, logPath)
+		if err != nil {
+			return fmt.Errorf("failed to start infrastructure: %w", err)
+		}
 	}
 
 	logger.Info("Infrastructure started")
@@ -578,7 +593,7 @@ func (r *TestRunner) runTool(ctx context.Context) (err error) {
 	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
-	paths := collectDockerComposeFiles(r.tools)
+	paths := collectDockerComposeFiles(r.tools...)
 	if len(paths) == 0 {
 		logger.Info("No tools to start")
 		return nil
@@ -991,7 +1006,7 @@ func (r *TestRunner) pullHookImages(ctx context.Context, logger *slog.Logger, ho
 	return nil
 }
 
-func collectDockerComposeFiles(cfgs []config.ServiceConfig) []string {
+func collectDockerComposeFiles(cfgs ...config.ServiceConfig) []string {
 	paths := make([]string, len(cfgs))
 	for i, cfg := range cfgs {
 		paths[i] = cfg.DockerCompose
@@ -1001,4 +1016,14 @@ func collectDockerComposeFiles(cfgs []config.ServiceConfig) []string {
 
 func ptr[T any](v T) *T {
 	return &v
+}
+
+// fold is a generic fold function that applies a function to each element in a
+// sequence, accumulating the result.
+func fold[E any, T any](seq iter.Seq[E], init T, fn func(T, E) T) T {
+	result := init
+	for v := range seq {
+		result = fn(result, v)
+	}
+	return result
 }
