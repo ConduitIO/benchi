@@ -23,7 +23,7 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-if [ "$http_code" != "200" ]; then
+if [ "$http_code" != "202" ]; then
     echo "Pipeline stop request failed with HTTP code: $http_code"
     echo "Response: $(cat /tmp/curl_response)"
     exit 1
