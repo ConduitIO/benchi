@@ -15,6 +15,7 @@
 package benchi
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/csv"
@@ -38,6 +39,7 @@ import (
 	"github.com/conduitio/benchi/metrics/docker"
 	"github.com/conduitio/benchi/metrics/kafka"
 	"github.com/conduitio/benchi/metrics/prometheus"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/errdefs"
 	"github.com/sourcegraph/conc/pool"
@@ -503,7 +505,36 @@ func (r *TestRunner) runPreInfrastructure(ctx context.Context) (err error) {
 		return fmt.Errorf("failed to create output folder %q: %w", r.resultsDir, err)
 	}
 
-	// TODO pull all images
+	// Pull infrastructure images
+	logger.Info("Pulling docker images for infrastructure containers", "containers", r.infrastructureContainers)
+	err = dockerutil.ComposePull(
+		ctx,
+		dockerutil.ComposeOptions{
+			File: collectDockerComposeFiles(r.infrastructure),
+		},
+		dockerutil.ComposePullOptions{},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to pull infrastructure images: %w", err)
+	}
+
+	// Pull tool images
+	logger.Info("Pulling docker images for tool containers", "containers", r.toolContainers)
+	err = dockerutil.ComposePull(
+		ctx,
+		dockerutil.ComposeOptions{
+			File: collectDockerComposeFiles(r.tools),
+		},
+		dockerutil.ComposePullOptions{},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to pull tool images: %w", err)
+	}
+
+	err = r.pullHookImages(ctx, logger, r.hooks.All())
+	if err != nil {
+		return fmt.Errorf("failed to pull docker images for hooks: %w", err)
+	}
 
 	return r.runHooks(ctx, logger, r.hooks.PreInfrastructure)
 }
@@ -912,6 +943,52 @@ func (r *TestRunner) runHook(ctx context.Context, logger *slog.Logger, hook conf
 	logger.Info("Running command in temporary container", "image", image, "command", hook.Run)
 	//nolint:wrapcheck // The utility function is responsible for wrapping the error.
 	return dockerutil.RunInDockerNetwork(ctx, logger, image, NetworkName, hook.Run)
+}
+
+func (r *TestRunner) pullHookImages(ctx context.Context, logger *slog.Logger, hooks []config.TestHook) error {
+	var imgs []string
+	for _, hook := range hooks {
+		img := hook.Image
+		if img == "" {
+			img = DefaultHookImage
+		}
+		if !slices.Contains(imgs, img) {
+			imgs = append(imgs, img)
+		}
+	}
+
+	logger.Info("Pulling docker images for hooks", "images", imgs)
+	for _, img := range imgs {
+		resp, err := r.dockerClient.ImagePull(ctx, img, image.PullOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to pull docker image %q: %w", img, err)
+		}
+		scanner := bufio.NewScanner(resp)
+		tmp := make(map[string]any)
+		logAttrs := make([]any, 0)
+		for scanner.Scan() {
+			clear(tmp)
+			logAttrs = logAttrs[:0]
+
+			body := scanner.Bytes()
+			if err := json.Unmarshal(body, &tmp); err != nil {
+				logger.Warn("Failed to unmarshal docker image pull response", "image", img, "error", err)
+				tmp["response"] = string(body)
+			}
+
+			for k, v := range tmp {
+				logAttrs = append(logAttrs, slog.Any(k, v))
+			}
+
+			logger.Info("image pull response", logAttrs...)
+		}
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("failed to read image pull response: %w", err)
+		}
+		_ = resp.Close()
+	}
+
+	return nil
 }
 
 func collectDockerComposeFiles(cfgs []config.ServiceConfig) []string {

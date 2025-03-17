@@ -44,7 +44,7 @@ The repository includes an [example benchmark](./example). Use the following
 command to run the benchmark:
 
 ```sh
-benchi -config ./example/bench-kafka-kafka/bench.yaml
+benchi -config ./example/bench-kafka-kafka/bench.yml
 ```
 
 Running the benchmark will store the results in the `results` folder. Inside the
