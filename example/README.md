@@ -30,13 +30,16 @@ and Docker, displaying them in the CLI. After the benchmark is complete, the
 metrics will be exported to CSV files in the output folder (e.g.
 `results/20060102_150405`).
 
-Benchi will store the results in the `results` folder. Inside the results folder,
-you will find a folder named after the current date and time (e.g.
-`results/20060102_150405`). This folder will contain logs and results:
+The output folder will contain logs and results:
 
 - `benchi.log`: Log file containing the output of the benchmark run.
-- `infra.log`: Log file containing the output of the infrastructure docker containers.
-- `tools.log`: Log file containing the output of the tools docker containers.
-- `conduit.csv`: Metrics collected using the [Conduit](../README.md#conduit) collector.
-- `docker.csv`: Metrics collected using the [Docker](../README.md##docker) collector.
-- `kafka.csv`: Metrics collected using the [Kafka](../README.md##kafka) collector.
+- `aggregated-results.csv`: Aggregated metric results from all collectors.
+- `kafka-to-kafka_conduit`: Folder containing the logs and metrics for the
+  `kafka-to-kafka` test and the `conduit` tool.
+  - `infra_kafka.log`: Log file containing the output of the kafka infrastructure
+    docker containers.
+  - `tools.log`: Log file containing the output of the tools docker containers
+    (conduit).
+  - `conduit.csv`: Metrics collected using the [Conduit](../README.md#conduit) collector.
+  - `docker.csv`: Metrics collected using the [Docker](../README.md##docker) collector.
+  - `kafka.csv`: Metrics collected using the [Kafka](../README.md##kafka) collector.

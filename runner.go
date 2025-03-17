@@ -15,14 +15,17 @@
 package benchi
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iter"
 	"log/slog"
 	"maps"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -37,6 +40,7 @@ import (
 	"github.com/conduitio/benchi/metrics/docker"
 	"github.com/conduitio/benchi/metrics/kafka"
 	"github.com/conduitio/benchi/metrics/prometheus"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/errdefs"
 	"github.com/sourcegraph/conc/pool"
@@ -46,8 +50,6 @@ const (
 	NetworkName      = "benchi"
 	DefaultHookImage = "alpine:latest"
 )
-
-type TestRunners []*TestRunner
 
 type TestRunnerOptions struct {
 	// ResultsDir is the directory where the test results are stored.
@@ -81,18 +83,21 @@ func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) (TestRunners, er
 			continue
 		}
 
-		infra := make([]config.ServiceConfig, 0, len(cfg.Infrastructure)+len(t.Infrastructure))
-		for _, v := range cfg.Infrastructure {
-			infra = append(infra, v)
+		infra := make(map[string][]config.ServiceConfig)
+		infraComposeFiles := make([]string, 0, len(cfg.Infrastructure)+len(t.Infrastructure))
+		for k, v := range cfg.Infrastructure {
+			infra[k] = append(infra[k], v)
+			infraComposeFiles = append(infraComposeFiles, collectDockerComposeFiles(v)...)
 		}
-		for _, v := range t.Infrastructure {
-			infra = append(infra, v)
+		for k, v := range t.Infrastructure {
+			infra[k] = append(infra[k], v)
+			infraComposeFiles = append(infraComposeFiles, collectDockerComposeFiles(v)...)
 		}
 
 		var infraContainers []string
 		if len(infra) > 0 {
 			var err error
-			infraContainers, err = findContainerNames(context.Background(), collectDockerComposeFiles(infra))
+			infraContainers, err = findContainerNames(context.Background(), infraComposeFiles)
 			if err != nil {
 				return nil, fmt.Errorf("failed to find infrastructure container names: %w", err)
 			}
@@ -131,7 +136,7 @@ func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) (TestRunners, er
 			var toolContainers []string
 			if len(tools) > 0 {
 				var err error
-				toolContainers, err = findContainerNames(context.Background(), collectDockerComposeFiles(tools))
+				toolContainers, err = findContainerNames(context.Background(), collectDockerComposeFiles(tools...))
 				if err != nil {
 					return nil, fmt.Errorf("failed to find tool container names: %w", err)
 				}
@@ -225,11 +230,143 @@ func findContainerNames(ctx context.Context, files []string) ([]string, error) {
 	return containers, nil
 }
 
+type TestRunners []*TestRunner
+
+func (runners TestRunners) ExportAggregatedMetrics(resultsDir string) error {
+	path := filepath.Join(resultsDir, "aggregated-results.csv")
+	slog.Info("Exporting aggregated metrics", "path", path)
+
+	headers, records := runners.aggregatedMetrics()
+
+	f, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("error creating file: %w", err)
+	}
+	defer f.Close()
+
+	writer := csv.NewWriter(f)
+	err = writer.Write(headers)
+	if err != nil {
+		return fmt.Errorf("error writing CSV header: %w", err)
+	}
+
+	err = writer.WriteAll(records)
+	if err != nil {
+		return fmt.Errorf("error writing CSV records: %w", err)
+	}
+
+	err = writer.Error()
+	if err != nil {
+		return fmt.Errorf("error writing CSV records: %w", err)
+	}
+
+	return nil
+}
+
+func (runners TestRunners) aggregatedMetrics() (headers []string, records [][]string) {
+	headers = []string{"test", "tool"}
+
+	// colIndexes maps the collector name and metric name to the column index in
+	// the records and headers slices.
+	colIndexes := make(map[string]map[string]int)
+
+	for _, tr := range runners {
+		recs := make([]string, len(headers))
+		recs[0] = tr.Name()
+		recs[1] = tr.Tool()
+
+		for _, c := range tr.Collectors() {
+			indexes := colIndexes[c.Name()]
+			if indexes == nil {
+				indexes = make(map[string]int)
+				colIndexes[c.Name()] = indexes
+			}
+
+			for _, r := range c.Results() {
+				idx := indexes[r.Name]
+				if idx == 0 {
+					idx = len(headers)
+					indexes[r.Name] = idx
+					headers = append(headers, r.Name)
+					// Backfill records with empty values.
+					for i := 0; i < len(records); i++ {
+						records[i] = append(records[i], "")
+					}
+					recs = append(recs, "") //nolint:makezero // False positive.
+				}
+
+				mean, ok := runners.trimmedMean(r.Samples)
+				if ok {
+					recs[idx] = fmt.Sprintf("%.2f", mean)
+				}
+			}
+		}
+		records = append(records, recs)
+	}
+
+	return headers, records
+}
+
+// trimmedMean calculates the trimmed mean of the samples. It trims any zeros
+// from the start and end of the samples, then trims any samples that are more
+// than 2 standard deviations from the mean. It returns the trimmed mean and a
+// boolean indicating if the trimmed mean was calculated successfully.
+func (runners TestRunners) trimmedMean(samples []metrics.Sample) (float64, bool) {
+	if len(samples) == 0 {
+		return 0, false
+	}
+
+	// Trim any zeros from the start and end of the samples.
+	for len(samples) > 0 && samples[0].Value == 0 {
+		samples = samples[1:]
+	}
+	for len(samples) > 0 && samples[len(samples)-1].Value == 0 {
+		samples = samples[:len(samples)-1]
+	}
+
+	if len(samples) == 0 {
+		return 0, true
+	}
+
+	n := float64(len(samples)) // Number of samples as a float.
+
+	// Calculate mean and standard deviation
+	var sum float64
+	for _, s := range samples {
+		sum += s.Value
+	}
+	mean := sum / n
+
+	var variance float64
+	for _, s := range samples {
+		variance += (s.Value - mean) * (s.Value - mean)
+	}
+	stddev := math.Sqrt(variance / n)
+
+	// Trim samples that are more than 2 standard deviations from the mean.
+	var trimmed []float64
+	lowerBound := mean - 2*stddev
+	upperBound := mean + 2*stddev
+	for _, s := range samples {
+		if s.Value >= lowerBound && s.Value <= upperBound {
+			trimmed = append(trimmed, s.Value)
+		}
+	}
+
+	// Calculate the trimmed mean.
+	var trimmedSum float64
+	for _, s := range trimmed {
+		trimmedSum += s
+	}
+
+	return trimmedSum / float64(len(trimmed)), true
+}
+
 // TestRunner is a single test run for a single tool.
 type TestRunner struct {
 	step Step
 
-	infrastructure []config.ServiceConfig
+	infrastructure map[string][]config.ServiceConfig
 	tools          []config.ServiceConfig
 	collectors     []metrics.Collector
 
@@ -280,7 +417,7 @@ func (r *TestRunner) Duration() time.Duration {
 	return r.duration
 }
 
-func (r *TestRunner) Infrastructure() []config.ServiceConfig {
+func (r *TestRunner) Infrastructure() map[string][]config.ServiceConfig {
 	return r.infrastructure
 }
 
@@ -372,7 +509,44 @@ func (r *TestRunner) runPreInfrastructure(ctx context.Context) (err error) {
 		return fmt.Errorf("failed to create output folder %q: %w", r.resultsDir, err)
 	}
 
-	// TODO pull all images
+	infraConfigs := fold(
+		maps.Values(r.infrastructure),
+		nil,
+		func(result []config.ServiceConfig, cfgs []config.ServiceConfig) []config.ServiceConfig {
+			return append(result, cfgs...)
+		},
+	)
+
+	// Pull infrastructure images
+	logger.Info("Pulling docker images for infrastructure containers", "containers", r.infrastructureContainers)
+	err = dockerutil.ComposePull(
+		ctx,
+		dockerutil.ComposeOptions{
+			File: collectDockerComposeFiles(infraConfigs...),
+		},
+		dockerutil.ComposePullOptions{},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to pull infrastructure images: %w", err)
+	}
+
+	// Pull tool images
+	logger.Info("Pulling docker images for tool containers", "containers", r.toolContainers)
+	err = dockerutil.ComposePull(
+		ctx,
+		dockerutil.ComposeOptions{
+			File: collectDockerComposeFiles(r.tools...),
+		},
+		dockerutil.ComposePullOptions{},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to pull tool images: %w", err)
+	}
+
+	err = r.pullHookImages(ctx, logger, r.hooks.All())
+	if err != nil {
+		return fmt.Errorf("failed to pull docker images for hooks: %w", err)
+	}
 
 	return r.runHooks(ctx, logger, r.hooks.PreInfrastructure)
 }
@@ -381,17 +555,20 @@ func (r *TestRunner) runInfrastructure(ctx context.Context) (err error) {
 	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
-	paths := collectDockerComposeFiles(r.infrastructure)
-	if len(paths) == 0 {
+	if len(r.infrastructure) == 0 {
 		logger.Info("No infrastructure to start")
 		return nil
 	}
 
-	logPath := filepath.Join(r.resultsDir, "infrastructure.log")
+	for k, infraConfigs := range r.infrastructure {
+		logPath := filepath.Join(r.resultsDir, fmt.Sprintf("infra_%s.log", k))
+		paths := collectDockerComposeFiles(infraConfigs...)
 
-	err = r.dockerComposeUpWait(ctx, logger, paths, r.infrastructureContainers, logPath)
-	if err != nil {
-		return fmt.Errorf("failed to start infrastructure: %w", err)
+		logger.Info("Running infrastructure", "name", k, "log-path", logPath)
+		err = r.dockerComposeUpWait(ctx, logger, paths, r.infrastructureContainers, logPath)
+		if err != nil {
+			return fmt.Errorf("failed to start infrastructure: %w", err)
+		}
 	}
 
 	logger.Info("Infrastructure started")
@@ -416,7 +593,7 @@ func (r *TestRunner) runTool(ctx context.Context) (err error) {
 	logger, lastLog := r.loggerForStep(r.step)
 	defer func() { lastLog(err) }()
 
-	paths := collectDockerComposeFiles(r.tools)
+	paths := collectDockerComposeFiles(r.tools...)
 	if len(paths) == 0 {
 		logger.Info("No tools to start")
 		return nil
@@ -783,7 +960,53 @@ func (r *TestRunner) runHook(ctx context.Context, logger *slog.Logger, hook conf
 	return dockerutil.RunInDockerNetwork(ctx, logger, image, NetworkName, hook.Run)
 }
 
-func collectDockerComposeFiles(cfgs []config.ServiceConfig) []string {
+func (r *TestRunner) pullHookImages(ctx context.Context, logger *slog.Logger, hooks []config.TestHook) error {
+	var imgs []string
+	for _, hook := range hooks {
+		img := hook.Image
+		if img == "" {
+			img = DefaultHookImage
+		}
+		if !slices.Contains(imgs, img) {
+			imgs = append(imgs, img)
+		}
+	}
+
+	logger.Info("Pulling docker images for hooks", "images", imgs)
+	for _, img := range imgs {
+		resp, err := r.dockerClient.ImagePull(ctx, img, image.PullOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to pull docker image %q: %w", img, err)
+		}
+		scanner := bufio.NewScanner(resp)
+		tmp := make(map[string]any)
+		logAttrs := make([]any, 0)
+		for scanner.Scan() {
+			clear(tmp)
+			logAttrs = logAttrs[:0]
+
+			body := scanner.Bytes()
+			if err := json.Unmarshal(body, &tmp); err != nil {
+				logger.Warn("Failed to unmarshal docker image pull response", "image", img, "error", err)
+				tmp["response"] = string(body)
+			}
+
+			for k, v := range tmp {
+				logAttrs = append(logAttrs, slog.Any(k, v))
+			}
+
+			logger.Info("image pull response", logAttrs...)
+		}
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("failed to read image pull response: %w", err)
+		}
+		_ = resp.Close()
+	}
+
+	return nil
+}
+
+func collectDockerComposeFiles(cfgs ...config.ServiceConfig) []string {
 	paths := make([]string, len(cfgs))
 	for i, cfg := range cfgs {
 		paths[i] = cfg.DockerCompose
@@ -793,4 +1016,14 @@ func collectDockerComposeFiles(cfgs []config.ServiceConfig) []string {
 
 func ptr[T any](v T) *T {
 	return &v
+}
+
+// fold is a generic fold function that applies a function to each element in a
+// sequence, accumulating the result.
+func fold[E any, T any](seq iter.Seq[E], init T, fn func(T, E) T) T {
+	result := init
+	for v := range seq {
+		result = fn(result, v)
+	}
+	return result
 }
