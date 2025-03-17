@@ -36,9 +36,10 @@ The output folder will contain logs and results:
 - `aggregated-results.csv`: Aggregated metric results from all collectors.
 - `kafka-to-kafka_conduit`: Folder containing the logs and metrics for the
   `kafka-to-kafka` test and the `conduit` tool.
-  - `infra.log`: Log file containing the output of the infrastructure docker
-    containers.
-  - `tools.log`: Log file containing the output of the tools docker containers.
+  - `infra_kafka.log`: Log file containing the output of the kafka infrastructure
+    docker containers.
+  - `tools.log`: Log file containing the output of the tools docker containers
+    (conduit).
   - `conduit.csv`: Metrics collected using the [Conduit](../README.md#conduit) collector.
   - `docker.csv`: Metrics collected using the [Docker](../README.md##docker) collector.
   - `kafka.csv`: Metrics collected using the [Kafka](../README.md##kafka) collector.
