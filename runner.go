@@ -565,7 +565,11 @@ func (r *TestRunner) runInfrastructure(ctx context.Context) (err error) {
 		paths := collectDockerComposeFiles(infraConfigs...)
 
 		logger.Info("Running infrastructure", "name", k, "log-path", logPath)
-		err = r.dockerComposeUpWait(ctx, logger, paths, r.infrastructureContainers, logPath)
+		containers, err := findContainerNames(ctx, paths)
+		if err != nil {
+			return fmt.Errorf("failed finding container names for paths %v: %w", paths, err)
+		}
+		err = r.dockerComposeUpWait(ctx, logger, paths, containers, logPath)
 		if err != nil {
 			return fmt.Errorf("failed to start infrastructure: %w", err)
 		}
