@@ -8,7 +8,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/docker/docker v28.0.1+incompatible
 	github.com/go-viper/mapstructure/v2 v2.2.1
-	github.com/golangci/golangci-lint v1.64.7
+	github.com/golangci/golangci-lint v1.64.8
 	github.com/lmittmann/tint v1.0.7
 	github.com/prometheus/client_golang v1.21.1
 	github.com/prometheus/common v0.62.0
