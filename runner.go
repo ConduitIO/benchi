@@ -84,23 +84,21 @@ func BuildTestRunners(cfg config.Config, opt TestRunnerOptions) (TestRunners, er
 		}
 
 		infra := make(map[string][]config.ServiceConfig)
-		infraComposeFiles := make([]string, 0, len(cfg.Infrastructure)+len(t.Infrastructure))
 		for k, v := range cfg.Infrastructure {
 			infra[k] = append(infra[k], v)
-			infraComposeFiles = append(infraComposeFiles, collectDockerComposeFiles(v)...)
 		}
 		for k, v := range t.Infrastructure {
 			infra[k] = append(infra[k], v)
-			infraComposeFiles = append(infraComposeFiles, collectDockerComposeFiles(v)...)
 		}
 
-		var infraContainers []string
-		if len(infra) > 0 {
-			var err error
-			infraContainers, err = findContainerNames(context.Background(), infraComposeFiles)
+		infraContainers := make(map[string][]string)
+		for k, v := range infra {
+			f := collectDockerComposeFiles(v...)
+			containers, err := findContainerNames(context.Background(), f)
 			if err != nil {
-				return nil, fmt.Errorf("failed to find infrastructure container names: %w", err)
+				return nil, fmt.Errorf("failed to find infrastructure container names for %s: %w", k, err)
 			}
+			infraContainers[k] = containers
 		}
 
 		toolNames := slices.Collect(maps.Keys(cfg.Tools))
@@ -370,7 +368,7 @@ type TestRunner struct {
 	tools          []config.ServiceConfig
 	collectors     []metrics.Collector
 
-	infrastructureContainers []string
+	infrastructureContainers map[string][]string
 	toolContainers           []string
 
 	name     string
@@ -422,7 +420,13 @@ func (r *TestRunner) Infrastructure() map[string][]config.ServiceConfig {
 }
 
 func (r *TestRunner) InfrastructureContainers() []string {
-	return r.infrastructureContainers
+	return fold(
+		maps.Values(r.infrastructureContainers),
+		nil,
+		func(result []string, containers []string) []string {
+			return append(result, containers...)
+		},
+	)
 }
 
 func (r *TestRunner) Tools() []config.ServiceConfig {
@@ -565,11 +569,7 @@ func (r *TestRunner) runInfrastructure(ctx context.Context) (err error) {
 		paths := collectDockerComposeFiles(infraConfigs...)
 
 		logger.Info("Running infrastructure", "name", k, "log-path", logPath)
-		containers, err := findContainerNames(ctx, paths)
-		if err != nil {
-			return fmt.Errorf("failed finding container names for paths %v: %w", paths, err)
-		}
-		err = r.dockerComposeUpWait(ctx, logger, paths, containers, logPath)
+		err = r.dockerComposeUpWait(ctx, logger, paths, r.infrastructureContainers[k], logPath)
 		if err != nil {
 			return fmt.Errorf("failed to start infrastructure: %w", err)
 		}
