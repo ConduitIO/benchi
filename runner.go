@@ -603,7 +603,7 @@ func (r *TestRunner) runTool(ctx context.Context) (err error) {
 		return nil
 	}
 
-	logPath := filepath.Join(r.resultsDir, "tools.log")
+	logPath := filepath.Join(r.resultsDir, fmt.Sprintf("tool_%s.log", r.tool))
 
 	err = r.dockerComposeUpWait(ctx, logger, paths, r.toolContainers, logPath)
 	if err != nil {
