@@ -4,16 +4,18 @@
 TESTS=("cdc" "snapshot")
 TOOLS=("conduit" "kafka-connect")
 
-# Loop through each test case
-for TEST in "${TESTS[@]}"; do
-  for TOOL in "${TOOLS[@]}"; do
-    echo "==============================================="
-    echo "Running benchmark for TEST=$TEST, TOOL=$TOOL"
-    echo "==============================================="
+# Run 10 iterations of the full test matrix
+for iteration in {1..10}; do
+  echo "================================================="
+  echo "ITERATION $iteration of 10"
+  echo "================================================="
 
-    # Run the benchmark 10 times
-    for i in {1..10}; do
-      echo "=== Run $i of 10 ==="
+  # Loop through each test case
+  for TEST in "${TESTS[@]}"; do
+    for TOOL in "${TOOLS[@]}"; do
+      echo "-----------------------------------------------"
+      echo "Running benchmark for TEST=$TEST, TOOL=$TOOL"
+      echo "-----------------------------------------------"
 
       # Cleanup
       echo "Stopping all running containers..."
@@ -29,13 +31,13 @@ for TEST in "${TESTS[@]}"; do
       echo "Running benchmark..."
       go run cmd/benchi/main.go -config benchmarks/bench-mongo-kafka-$TEST/test-config.yml -tool $TOOL
 
-      echo "Run $i completed."
+      echo "Completed: TEST=$TEST, TOOL=$TOOL"
       echo ""
     done
-
-    echo "Benchmark completed for TEST=$TEST, TOOL=$TOOL"
-    echo ""
   done
+
+  echo "Iteration $iteration completed."
+  echo ""
 done
 
 echo "All benchmarks completed."
