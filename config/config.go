@@ -33,7 +33,7 @@ type ServiceConfig struct {
 	// DockerCompose is the path to the Docker Compose file for the service. If
 	// it's a relative path, it will be resolved relative to the configuration
 	// file.
-	DockerCompose string `yaml:"compose"`
+	DockerCompose StringList `yaml:"compose"`
 }
 
 // Infrastructure represents a map of service configurations for the infrastructure.
