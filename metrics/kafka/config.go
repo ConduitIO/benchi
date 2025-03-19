@@ -17,12 +17,13 @@ package kafka
 import (
 	"fmt"
 
+	"github.com/conduitio/benchi/config"
 	"github.com/go-viper/mapstructure/v2"
 )
 
 type Config struct {
 	// Topics is a list of topics to monitor.
-	Topics []string `yaml:"topics"`
+	Topics config.StringList `yaml:"topics"`
 }
 
 func parseConfig(settings map[string]any) (Config, error) {

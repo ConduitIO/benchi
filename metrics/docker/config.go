@@ -17,12 +17,13 @@ package docker
 import (
 	"fmt"
 
+	"github.com/conduitio/benchi/config"
 	"github.com/go-viper/mapstructure/v2"
 )
 
 type Config struct {
 	// Containers is a list of containers to monitor.
-	Containers []string `yaml:"containers"`
+	Containers config.StringList `yaml:"containers"`
 }
 
 func parseConfig(settings map[string]any) (Config, error) {
