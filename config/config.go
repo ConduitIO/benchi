@@ -51,7 +51,7 @@ type MetricsCollector struct {
 	Settings map[string]any `yaml:"settings"`
 	// Tools is a list of tools for which the collector is applicable. If empty,\
 	// the collector will be applied to all tools.
-	Tools []string `yaml:"tools"`
+	Tools StringList `yaml:"tools"`
 }
 
 // Test represents the configuration for a test.
@@ -129,5 +129,5 @@ type TestHook struct {
 	Run string `yaml:"run"`
 	// Tools is a list of tools for which the hook is applicable. If empty, the
 	// hook will be applied to all tools.
-	Tools []string `yaml:"tools"`
+	Tools StringList `yaml:"tools"`
 }
