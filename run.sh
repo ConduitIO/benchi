@@ -27,6 +27,9 @@ for iteration in {1..10}; do
       echo "Pruning volumes..."
       docker volume prune -f --filter all=true
 
+      echo "Sleeping"
+      sleep 120
+
       # Run the benchmark
       echo "Running benchmark..."
       go run cmd/benchi/main.go -config benchmarks/bench-mongo-kafka-$TEST/test-config.yml -tool $TOOL
