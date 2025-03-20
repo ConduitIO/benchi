@@ -87,14 +87,15 @@ func (c *Collector) Configure(settings map[string]any) error {
 }
 
 func (c *Collector) Run(ctx context.Context) error {
-	out := make(chan stats, 100+len(c.cfg.Containers))
+	out := make(chan stats, 4*len(c.cfg.Containers))
 	var wg sync.WaitGroup
 
 	for _, container := range c.cfg.Containers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			collect(ctx, c.logger, c.dockerClient, container, out)
+			logger := c.logger.With("container", container)
+			collect(ctx, logger, c.dockerClient, container, out)
 		}()
 	}
 
@@ -110,6 +111,7 @@ func (c *Collector) Run(ctx context.Context) error {
 			if firstError == nil {
 				firstError = s.Err
 			}
+			continue
 		}
 
 		c.storeStatsEntry(s.statsEntry)

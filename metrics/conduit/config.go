@@ -17,12 +17,13 @@ package conduit
 import (
 	"fmt"
 
+	"github.com/conduitio/benchi/config"
 	"github.com/go-viper/mapstructure/v2"
 )
 
 type Config struct {
 	// Pipelines is a list of pipelines to monitor.
-	Pipelines []string `yaml:"pipelines"`
+	Pipelines config.StringList `yaml:"pipelines"`
 }
 
 func parseConfig(settings map[string]any) (Config, error) {

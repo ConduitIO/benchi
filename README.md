@@ -69,7 +69,7 @@ and tool combination). Each benchmark run folder will contain:
 
 - `infra_NAME.log`: Log file containing the output of the infrastructure docker
   containers, split per infra service.
-- `tools.log`: Log file containing the output of the tools docker containers.
+- `tool_NAME.log`: Log file containing the output of the tool docker containers.
 - `COLLECTOR.csv`: Raw metrics collected using the corresponding
   [metrics collector](#collectors).
 

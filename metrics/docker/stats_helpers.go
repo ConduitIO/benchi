@@ -28,6 +28,7 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/errdefs"
 )
 
 // statsEntry represents the statistics data collected from a container.
@@ -63,10 +64,14 @@ func collect(
 	containerName string,
 	out chan<- stats,
 ) {
-	logger.Debug("Collecting stats", "container", containerName)
+	logger.Debug("Collecting stats")
 
 	response, err := cli.ContainerStats(ctx, containerName, true)
 	if err != nil {
+		if errdefs.IsNotFound(err) {
+			logger.Warn("Container not found, metrics won't be collected for container", "error", err)
+			return
+		}
 		out <- stats{Container: containerName, Err: err}
 		return
 	}
@@ -94,7 +99,7 @@ func collect(
 			if err == io.EOF {
 				break
 			}
-			out <- stats{Err: err}
+			out <- stats{Container: containerName, Err: err}
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}

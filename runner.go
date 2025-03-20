@@ -603,7 +603,7 @@ func (r *TestRunner) runTool(ctx context.Context) (err error) {
 		return nil
 	}
 
-	logPath := filepath.Join(r.resultsDir, "tools.log")
+	logPath := filepath.Join(r.resultsDir, fmt.Sprintf("tool_%s.log", r.tool))
 
 	err = r.dockerComposeUpWait(ctx, logger, paths, r.toolContainers, logPath)
 	if err != nil {
@@ -1011,9 +1011,9 @@ func (r *TestRunner) pullHookImages(ctx context.Context, logger *slog.Logger, ho
 }
 
 func collectDockerComposeFiles(cfgs ...config.ServiceConfig) []string {
-	paths := make([]string, len(cfgs))
-	for i, cfg := range cfgs {
-		paths[i] = cfg.DockerCompose
+	paths := make([]string, 0, len(cfgs))
+	for _, cfg := range cfgs {
+		paths = append(paths, cfg.DockerCompose...)
 	}
 	return paths
 }

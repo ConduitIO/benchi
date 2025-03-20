@@ -33,7 +33,7 @@ type ServiceConfig struct {
 	// DockerCompose is the path to the Docker Compose file for the service. If
 	// it's a relative path, it will be resolved relative to the configuration
 	// file.
-	DockerCompose string `yaml:"compose"`
+	DockerCompose StringList `yaml:"compose"`
 }
 
 // Infrastructure represents a map of service configurations for the infrastructure.
@@ -51,7 +51,7 @@ type MetricsCollector struct {
 	Settings map[string]any `yaml:"settings"`
 	// Tools is a list of tools for which the collector is applicable. If empty,\
 	// the collector will be applied to all tools.
-	Tools []string `yaml:"tools"`
+	Tools StringList `yaml:"tools"`
 }
 
 // Test represents the configuration for a test.
@@ -129,5 +129,5 @@ type TestHook struct {
 	Run string `yaml:"run"`
 	// Tools is a list of tools for which the hook is applicable. If empty, the
 	// hook will be applied to all tools.
-	Tools []string `yaml:"tools"`
+	Tools StringList `yaml:"tools"`
 }
