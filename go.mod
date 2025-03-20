@@ -6,7 +6,7 @@ require (
 	github.com/charmbracelet/bubbles v0.20.0
 	github.com/charmbracelet/bubbletea v1.3.4
 	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/docker/docker v28.0.1+incompatible
+	github.com/docker/docker v28.0.2+incompatible
 	github.com/go-viper/mapstructure/v2 v2.2.1
 	github.com/golangci/golangci-lint v1.64.8
 	github.com/lmittmann/tint v1.0.7
