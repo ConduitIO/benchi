@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/bin/sh
 
-# Copyright © 2024 Meroxa, Inc.
+# Copyright © 2025 Meroxa, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -31,8 +31,8 @@ fail() {
 
 # Function to print a string in bright blue
 coloredEcho() {
-  local text=$1
-  printf "${conduit_blue}${text}${reset}\n"
+  # local text=$1
+  printf "${conduit_blue}$1${reset}\n"
 }
 
 initArch() {
@@ -51,17 +51,17 @@ initArch() {
 }
 
 initOS() {
-  OS=$(echo $(uname))
+  OS=$(uname)
   # We support Linux and Darwin, Windows (mingw, msys) are not supported.
-  if [[ "$OS" != "Linux" && "$OS" != "Darwin" ]]; then
+  if [ "$OS" != "Linux" ] && [ "$OS" != "Darwin" ]; then
     fail "Error: Unsupported operating system: $OS"
   fi
 }
 
 initDownloadTool() {
-  if type "curl" >/dev/null; then
+  if command -v curl >/dev/null 2>&1; then
     DOWNLOAD_TOOL="curl"
-  elif type "wget" >/dev/null; then
+  elif command -v wget >/dev/null 2>&1; then
     DOWNLOAD_TOOL="wget"
   else
     fail "You need 'curl' or 'wget' as a download tool. Please install it first before continuing."
@@ -74,10 +74,10 @@ getLatestTag() {
   local latest_url # Variable to store the redirected URL
 
   # Check if DOWNLOAD_TOOL is set to curl or wget
-  if [[ "$DOWNLOAD_TOOL" == "curl" ]]; then
+  if [ "$DOWNLOAD_TOOL" = "curl" ]; then
     # Use curl to get the redirected link
     latest_url=$(curl -sL -o /dev/null -w "%{url_effective}" "$url")
-  elif [[ "$DOWNLOAD_TOOL" == "wget" ]]; then
+  elif [ "$DOWNLOAD_TOOL" = "wget" ]; then
     # Use wget to get the redirected link
     latest_url=$(wget --spider --server-response --max-redirect=2 "$url" 2>&1 | grep "Location" | tail -1 | awk '{print $2}')
   else
@@ -85,7 +85,7 @@ getLatestTag() {
   fi
 
   # Extract the tag from the redirected URL (everything after the last "/")
-  TAG=$(echo "$latest_url" | grep -oE "[^/]+$")
+  TAG=$(echo "$latest_url" | grep -o '[^/]*$')
 }
 
 get() {
@@ -94,14 +94,14 @@ get() {
   local httpStatusCode
   echo "Getting $url"
   if [ "$DOWNLOAD_TOOL" = "curl" ]; then
-    httpResponse=$(curl -sL --write-out HTTPSTATUS:%{http_code} "$url")
-    httpStatusCode=$(echo $httpResponse | tr -d '\n' | sed -e 's/.*HTTPSTATUS://')
+    httpResponse=$(curl -sL --write-out "HTTPSTATUS:%{http_code}" "$url")
+    httpStatusCode=$(echo "$httpResponse" | tr -d '\n' | sed -e 's/.*HTTPSTATUS://')
     body=$(echo "$httpResponse" | sed -e 's/HTTPSTATUS\:.*//g')
   elif [ "$DOWNLOAD_TOOL" = "wget" ]; then
     tmpFile=$(mktemp)
-    body=$(wget --server-response --content-on-error -q -O - "$url" 2>$tmpFile || true)
-    httpStatusCode=$(cat $tmpFile | awk '/^  HTTP/{print $2}' | tail -1)
-    rm -f $tmpFile
+    body=$(wget --server-response --content-on-error -q -O - "$url" 2>"$tmpFile" || true)
+    httpStatusCode=$(cat "$tmpFile" | awk '/^  HTTP/{print $2}' | tail -1)
+    rm -f "$tmpFile"
   fi
   if [ "$httpStatusCode" != 200 ]; then
     echo "Request fail with http status code $httpStatusCode"
@@ -120,14 +120,14 @@ getFile() {
     echo "$httpStatusCode"
   elif [ "$DOWNLOAD_TOOL" = "wget" ]; then
     tmpFile=$(mktemp)
-    wget --server-response --content-on-error -q -O "$filePath" "$url" 2>$tmpFile
+    wget --server-response --content-on-error -q -O "$filePath" "$url" 2>"$tmpFile"
     if [ $? -ne 0 ]; then
-      httpStatusCode=$(cat $tmpFile | awk '/^  HTTP/{print $2}' | tail -1)
-      rm -f $tmpFile
+      httpStatusCode=$(cat "$tmpFile" | awk '/^  HTTP/{print $2}' | tail -1)
+      rm -f "$tmpFile"
       echo "$httpStatusCode"
       return 1
     fi
-    rm -f $tmpFile
+    rm -f "$tmpFile"
     echo "200"
   fi
 }
@@ -136,7 +136,8 @@ install() {
   coloredEcho "Installing Benchi $TAG..."
   printf "\n"
 
-  local version="${TAG#v}" # Remove the leading 'v' from TAG and store it in 'version'
+  # Remove the leading 'v' from TAG and store it in 'version'
+  version=$(echo "$TAG" | sed 's/^v//')
   BENCHI_DIST="benchi_${version}_${OS}_${ARCH}.tar.gz"
   EXTRACTION_DIR="/tmp/benchi_${version}_${OS}_${ARCH}"
 
@@ -202,14 +203,14 @@ install() {
 bye() {
   result=$?
   if [ "$result" != "0" ]; then
-    echo -e "${red}Failed to install Benchi${reset}"
+    echo "${red}Failed to install Benchi${reset}"
   fi
   exit $result
 }
 
 testVersion() {
   set +e
-  BENCHI_BIN="$(which $PROJECT_NAME)"
+  BENCHI_BIN=$(which $PROJECT_NAME)
   if [ "$?" = "1" ]; then
     fail "$PROJECT_NAME not found."
   fi
@@ -221,7 +222,7 @@ testVersion() {
 # Execution
 
 #Stop execution on any error
-trap "bye" EXIT
+trap bye EXIT
 set -e
 
 initArch
