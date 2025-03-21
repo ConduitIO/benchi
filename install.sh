@@ -31,8 +31,8 @@ fail() {
 
 # Function to print a string in bright blue
 coloredEcho() {
-  # local text=$1
-  printf "${conduit_blue}$1${reset}\n"
+  text=$1
+  printf "${conduit_blue}${text}${reset}\n"
 }
 
 initArch() {
