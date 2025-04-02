@@ -101,12 +101,12 @@ func (m ContainerMonitorModel) View() string {
 			case "running":
 				style = statusGreenStyle
 				if c.State.Health != nil {
-					switch {
-					case c.State.Health.Status == types.Healthy:
+					switch c.State.Health.Status {
+					case types.Healthy:
 						style = statusGreenStyle
-					case c.State.Health.Status == types.Unhealthy:
+					case types.Unhealthy:
 						style = statusRedStyle
-					case c.State.Health.Status == types.Starting:
+					case types.Starting:
 						style = statusYellowStyle
 					}
 					status += fmt.Sprintf(" (%s)", c.State.Health.Status)
