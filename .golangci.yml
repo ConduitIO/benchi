@@ -1,51 +1,6 @@
-run:
-  timeout: 5m
-
-linters-settings:
-  nolintlint:
-    allow-unused: false # report any unused nolint directives
-    require-explanation: true # require an explanation for nolint directives
-    require-specific: true # require nolint directives to mention the specific linter being suppressed
-  goconst:
-    ignore-tests: true
-  goheader:
-    template-path: '.golangci.goheader.template'
-    values:
-      regexp:
-        copyright-year: 20[2-9]\d
-  wrapcheck:
-    ignoreSigs:
-      - .Errorf(
-      - errors.New(
-      - errors.Unwrap(
-      - errors.Join(
-      - .Wrap(
-      - .Wrapf(
-      - .WithMessage(
-      - .WithMessagef(
-      - .WithStack(
-      - (context.Context).Err()
-
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - dogsled
-        - gosec
-        - gocognit
-        - errcheck
-        - forcetypeassert
-        - funlen
-        - dupl
-        - maintidx
-    - path: cmd/benchi/*
-      linters:
-        - containedctx
-
+version: "2"
 linters:
-  # please, do not use `enable-all`: it's deprecated and will be removed soon.
-  # inverted configuration with `enable-all` and `disable` is not scalable during updates of golangci-lint
-  disable-all: true
+  default: none
   enable:
     - asasalint
     - asciicheck
@@ -55,21 +10,17 @@ linters:
     - contextcheck
     - copyloopvar
     - decorder
-    # - depguard
     - dogsled
     - dupl
     - dupword
     - durationcheck
-    # - err113
     - errcheck
     - errchkjson
     - errname
     - errorlint
     - exhaustive
-    # - forbidigo
     - forcetypeassert
     - funlen
-    - gci
     - ginkgolinter
     - gocheckcompilerdirectives
     - gochecknoinits
@@ -77,21 +28,16 @@ linters:
     - goconst
     - gocritic
     - godot
-    - gofmt
-    - gofumpt
     - goheader
-    - goimports
     - gomoddirectives
     - goprintffuncname
     - gosec
-    - gosimple
     - gosmopolitan
     - govet
     - grouper
     - importas
     - ineffassign
     - interfacebloat
-    # - ireturn # Doesn't have correct support for generic types https://github.com/butuzov/ireturn/issues/37
     - loggercheck
     - maintidx
     - makezero
@@ -113,11 +59,9 @@ linters:
     - rowserrcheck
     - sqlclosecheck
     - staticcheck
-    - stylecheck
     - testableexamples
     - thelper
     - unconvert
-    # - unparam
     - unused
     - usestdlibvars
     - usetesting
@@ -125,3 +69,65 @@ linters:
     - whitespace
     - wrapcheck
     - zerologlint
+  settings:
+    goheader:
+      values:
+        regexp:
+          copyright-year: 20[2-9]\d
+      template-path: .golangci.goheader.template
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-unused: false
+    wrapcheck:
+      ignore-sigs:
+        - .Errorf(
+        - errors.New(
+        - errors.Unwrap(
+        - errors.Join(
+        - .Wrap(
+        - .Wrapf(
+        - .WithMessage(
+        - .WithMessagef(
+        - .WithStack(
+        - (context.Context).Err()
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - dogsled
+          - dupl
+          - errcheck
+          - forcetypeassert
+          - funlen
+          - gocognit
+          - gosec
+          - maintidx
+        path: _test\.go
+      - linters:
+          - containedctx
+        path: cmd/benchi/*
+      - linters:
+          - goconst
+        path: (.+)_test\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
