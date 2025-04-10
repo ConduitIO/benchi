@@ -521,17 +521,19 @@ func (r *TestRunner) runPreInfrastructure(ctx context.Context) (err error) {
 		},
 	)
 
-	// Pull infrastructure images
-	logger.Info("Pulling docker images for infrastructure containers", "containers", r.infrastructureContainers)
-	err = dockerutil.ComposePull(
-		ctx,
-		dockerutil.ComposeOptions{
-			File: collectDockerComposeFiles(infraConfigs...),
-		},
-		dockerutil.ComposePullOptions{},
-	)
-	if err != nil {
-		return fmt.Errorf("failed to pull infrastructure images: %w", err)
+	if len(infraConfigs) > 0 {
+		// Pull infrastructure images
+		logger.Info("Pulling docker images for infrastructure containers", "containers", r.infrastructureContainers)
+		err = dockerutil.ComposePull(
+			ctx,
+			dockerutil.ComposeOptions{
+				File: collectDockerComposeFiles(infraConfigs...),
+			},
+			dockerutil.ComposePullOptions{},
+		)
+		if err != nil {
+			return fmt.Errorf("failed to pull infrastructure images: %w", err)
+		}
 	}
 
 	// Pull tool images
