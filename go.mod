@@ -10,8 +10,8 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.2.1
 	github.com/lmittmann/tint v1.0.7
 	github.com/prometheus/client_golang v1.22.0
-	github.com/prometheus/common v0.62.0
-	github.com/prometheus/prometheus v0.303.0
+	github.com/prometheus/common v0.63.0
+	github.com/prometheus/prometheus v0.303.1
 	github.com/samber/slog-multi v1.4.0
 	github.com/sourcegraph/conc v0.3.0
 	gopkg.in/yaml.v3 v3.0.1
