@@ -20,9 +20,9 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
-	"github.com/docker/docker/errdefs"
 )
 
 // CreateNetworkIfNotExist inspects for an existing network and creates it if it

@@ -40,9 +40,9 @@ import (
 	"github.com/conduitio/benchi/metrics/docker"
 	"github.com/conduitio/benchi/metrics/kafka"
 	"github.com/conduitio/benchi/metrics/prometheus"
+	"github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
-	"github.com/docker/docker/errdefs"
 	"github.com/sourcegraph/conc/pool"
 )
 
