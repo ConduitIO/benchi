@@ -7,7 +7,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.5
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/containerd/errdefs v1.0.0
-	github.com/docker/docker v28.2.2+incompatible
+	github.com/docker/docker v28.3.0+incompatible
 	github.com/go-viper/mapstructure/v2 v2.3.0
 	github.com/lmittmann/tint v1.1.2
 	github.com/prometheus/client_golang v1.22.0
