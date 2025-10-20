@@ -12,7 +12,7 @@ require (
 	github.com/lmittmann/tint v1.1.2
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/common v0.66.1
-	github.com/prometheus/prometheus v0.307.0
+	github.com/prometheus/prometheus v0.307.1
 	github.com/samber/slog-multi v1.5.0
 	github.com/sourcegraph/conc v0.3.0
 	gopkg.in/yaml.v3 v3.0.1
