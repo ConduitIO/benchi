@@ -11,8 +11,8 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.4.0
 	github.com/lmittmann/tint v1.1.2
 	github.com/prometheus/client_golang v1.23.2
-	github.com/prometheus/common v0.66.1
-	github.com/prometheus/prometheus v0.307.2
+	github.com/prometheus/common v0.67.1
+	github.com/prometheus/prometheus v0.307.3
 	github.com/samber/slog-multi v1.5.0
 	github.com/sourcegraph/conc v0.3.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -124,7 +124,7 @@ require (
 	google.golang.org/api v0.250.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250922171735-9219d122eba9 // indirect
 	google.golang.org/grpc v1.75.1 // indirect
-	google.golang.org/protobuf v1.36.9 // indirect
+	google.golang.org/protobuf v1.36.10 // indirect
 	k8s.io/apimachinery v0.34.1 // indirect
 	k8s.io/client-go v0.34.1 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
