@@ -13,7 +13,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/common v0.67.4
 	github.com/prometheus/prometheus v0.309.1
-	github.com/samber/slog-multi v1.7.0
+	github.com/samber/slog-multi v1.7.1
 	github.com/sourcegraph/conc v0.3.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -103,7 +103,7 @@ require (
 	github.com/prometheus/sigv4 v0.3.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/samber/lo v1.52.0 // indirect
-	github.com/samber/slog-common v0.19.0 // indirect
+	github.com/samber/slog-common v0.20.0 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
